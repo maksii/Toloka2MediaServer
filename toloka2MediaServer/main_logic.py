@@ -22,9 +22,28 @@ def add_release_by_url(config):
     proposed_guid = f"t{match.group(1)}" if match else None
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{proposed_guid}")
     suggested_name, suggested_codename = extract_torrent_details(torrent.name)
-    title.code_name = suggested_codename
-    # Collect additional data
+    
+    # Handle code name assignment with conflict resolution
+    base_code_name = None
+    if hasattr(config.args, 'code_name'):
+        base_code_name = getattr(config.args, 'code_name', None)
+        if base_code_name:
+            config.logger.debug(f"Using provided code_name: {base_code_name}")
+    
+    if not base_code_name:
+        base_code_name = suggested_codename
+        config.logger.debug(f"Using suggested code_name: {base_code_name}")
+
+    # Check if code name exists and handle season-based naming
     season_number = config.args.season
+    if config.titles_config.has_section(base_code_name):
+        # If section exists, append season number to make it unique
+        title.code_name = f"{base_code_name}S{season_number.zfill(2)}"
+        config.logger.info(f"Section {base_code_name} exists, using {title.code_name}")
+    else:
+        title.code_name = base_code_name
+
+    # Collect additional data
     title.season_number = season_number.zfill(2)
     default_download_dir = config.application_config.default_download_dir
     if (config.args.path):
