@@ -133,11 +133,22 @@ def process_torrent(config, title, torrent, new=False):
     )
     config.client.rename_torrent(torrent_hash=title.hash, new_torrent_name=folderName)
 
-    if new:
-        config.client.resume_torrent(torrent_hashes=title.hash)
+    if config.application_config.client == "qbittorrent":
+        if new:
+            success = config.client.resume_torrent(torrent_hashes=title.hash)
+        else:
+            success = config.client.recheck_and_resume(torrent_hashes=title.hash)
+            
+        if not success:
+            message = f"Failed to start torrent: {torrent.name}"
+            config.operation_result.operation_logs.append(message)
+            config.logger.error(message)
     else:
-        config.client.recheck_torrent(torrent_hashes=title.hash)
-        config.client.resume_torrent(torrent_hashes=title.hash)
+        if new:
+            config.client.resume_torrent(torrent_hashes=title.hash)
+        else:
+            config.client.recheck_torrent(torrent_hashes=title.hash)
+            config.client.resume_torrent(torrent_hashes=title.hash)
 
     titleConfig = title_to_config(title)
     update_config(titleConfig, title.code_name)
@@ -150,15 +161,28 @@ def update(config, title):
     if title == None:
         config.operation_result.operation_logs.append("Title not found")
         return config.operation_result
+        
     guid = title.guid.strip('"') if title.guid else ""
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{guid}")
     config.operation_result.torrent_references.append(torrent)
+    
     if title.publish_date not in torrent.date:
         message = f"Date is different! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
         config.logger.info(message)
+        
         if not config.args.force:
-            config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
+            # Delete old torrent but keep files
+            delete_success = config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
+            if not delete_success:
+                message = f"Failed to delete old torrent: {torrent.name}"
+                config.operation_result.operation_logs.append(message)
+                config.logger.error(message)
+                return config.operation_result
+                
+            # Wait a bit before adding new torrent
+            time.sleep(config.application_config.client_wait_time)
+            
         config.operation_result = process_torrent(config, title, torrent)
     else:
         message = f"Update not required! : {torrent.name}"
