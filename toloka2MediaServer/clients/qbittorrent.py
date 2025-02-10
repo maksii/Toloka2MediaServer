@@ -42,9 +42,51 @@ class QbittorrentClient(BittorrentClient):
             raise
 
     def add_torrent(self, torrents, category, tags, is_paused, download_dir):
-        return self.api_client.torrents.add(
-            torrent_files=torrents, category=category, tags=tags, is_paused=is_paused, download_path=download_dir
-        )
+        """Add a torrent with verification.
+        
+        Args:
+            torrents: Torrent file content
+            category (str): Category to assign
+            tags (list): Tags to assign
+            is_paused (bool): Whether to add in paused state
+            download_dir (str): Download directory path
+            
+        Returns:
+            str: Torrent hash if successful, None if torrent already exists
+        """
+        try:
+            # Try to add the torrent
+            self.api_client.torrents.add(
+                torrent_files=torrents, 
+                category=category, 
+                tags=tags, 
+                is_paused=is_paused, 
+                download_path=download_dir
+            )
+            
+            # Wait a bit before checking
+            time.sleep(1)
+            
+            # Get the most recently added torrent
+            torrents = self.get_torrent_info(
+                status_filter=None,  # Changed from "paused" to None to catch all states
+                category=category,
+                tags=tags,
+                sort='added_on',
+                reverse=True
+            )
+            
+            if torrents:
+                return torrents[0].hash
+                
+            # If we get here, likely the torrent already exists
+            return None
+                
+        except qbittorrentapi.exceptions.Conflict409Error:
+            # Explicit handling of duplicate torrent
+            return None
+        except Exception as e:
+            raise Exception(f"Failed to add torrent: {str(e)}")
 
     def get_torrent_info(
         self, status_filter, category, tags, sort, reverse, torrent_hash=None
@@ -251,14 +293,42 @@ class QbittorrentClient(BittorrentClient):
         )
 
     def delete_torrent(self, delete_files, torrent_hashes):
-        """Delete torrent with verification."""
-        def operation():
+        """Delete torrent with verification.
+        
+        Args:
+            delete_files (bool): Whether to delete files along with torrent
+            torrent_hashes (str): Hash of the torrent to delete
+            
+        Returns:
+            bool: True if torrent no longer exists (success), False otherwise
+        """
+        try:
+            # First check if torrent exists before trying to delete
+            initial_check = self.get_torrent_info(
+                status_filter=None,
+                category=None,
+                tags=None,
+                sort=None,
+                reverse=False,
+                torrent_hash=torrent_hashes
+            )
+            
+            # Check if the specific torrent hash exists in the results
+            target_exists = any(t.hash == torrent_hashes for t in initial_check)
+            
+            # If torrent doesn't exist, consider it already deleted - return success
+            if not target_exists:
+                return True
+                
+            # Torrent exists, try to delete it
             self.api_client.torrents_delete(
                 delete_files=delete_files,
                 torrent_hashes=torrent_hashes
             )
             
-        def verify():
+            # Wait a bit before checking
+            time.sleep(1)
+            
             # Verify torrent no longer exists
             torrent_info = self.get_torrent_info(
                 status_filter=None,
@@ -268,16 +338,12 @@ class QbittorrentClient(BittorrentClient):
                 reverse=False,
                 torrent_hash=torrent_hashes
             )
-            return not torrent_info
             
-        return self._retry_operation(
-            operation,
-            verify,
-            "delete torrent",
-            max_retries=3,
-            retry_delay=2,
-            initial_wait=1
-        )
+            # Check if the specific torrent hash still exists
+            return not any(t.hash == torrent_hashes for t in torrent_info)
+                
+        except Exception as e:
+            raise Exception(f"Failed to delete torrent: {str(e)}")
 
     def recheck_torrent(self, torrent_hashes):
         return self.api_client.torrents_recheck(torrent_hashes=torrent_hashes)
@@ -294,90 +360,77 @@ class QbittorrentClient(BittorrentClient):
         Returns:
             bool: True if operation was successful
         """
-        def recheck_operation():
+        try:
+            # First verify torrent exists
+            initial_check = self.get_torrent_info(
+                status_filter=None,
+                category=None,
+                tags=None,
+                sort=None,
+                reverse=False,
+                torrent_hash=torrent_hash
+            )
+            
+            if not any(t.hash == torrent_hash for t in initial_check):
+                return False
+                
+            # Start recheck
             self.api_client.torrents_recheck(torrent_hashes=torrent_hash)
             
-        def verify_recheck():
-            torrent_info = self.get_torrent_info(
-                status_filter=None,
-                category=None,
-                tags=None,
-                sort=None,
-                reverse=False,
-                torrent_hash=torrent_hash
-            )
-            if not torrent_info:
-                return False
+            # Wait for recheck to start (with retry)
+            check_interval = 1
+            max_retries = 10
+            for _ in range(max_retries):
+                torrent_info = self.get_torrent_info(
+                    status_filter=None,
+                    category=None,
+                    tags=None,
+                    sort=None,
+                    reverse=False,
+                    torrent_hash=torrent_hash
+                )
                 
-            state = torrent_info[0].state
+                matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
+                if not matching_torrents:
+                    return False
+                    
+                state = matching_torrents[0].state
+                if state in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
+                    break
+                    
+                time.sleep(check_interval)
+            else:
+                return False  # Recheck didn't start
+                
+            # Now wait indefinitely for check to complete
+            while True:
+                torrent_info = self.get_torrent_info(
+                    status_filter=None,
+                    category=None,
+                    tags=None,
+                    sort=None,
+                    reverse=False,
+                    torrent_hash=torrent_hash
+                )
+                
+                matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
+                if not matching_torrents:
+                    return False
+                    
+                state = matching_torrents[0].state
+                # If no longer checking, break
+                if state not in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
+                    break
+                    
+                time.sleep(2)
             
-            # States indicating recheck/verification is in progress
-            checking_states = [
-                'checkingResumeData',  # Initial check on startup
-                'checking',            # Generic checking
-                'checkingDL',          # Checking incomplete torrent
-                'checkingUP'           # Checking completed torrent
-            ]
-            
-            # States indicating torrent is in a valid state after check
-            valid_states = [
-                # Active states
-                'downloading', 'uploading',
-                'stalledDL', 'stalledUP',
-                'forcedDL', 'forcedUP',
-                'metaDL',
-                # Queued states
-                'queuedDL', 'queuedUP',
-                # Paused states
-                'pausedDL', 'pausedUP',
-                # Special states
-                'allocating'
-            ]
-            
-            # Still checking
-            if state in checking_states:
-                return False
-                
-            # Valid state reached
-            if state in valid_states:
-                return True
-                
-            # Special cases
-            if state == 'moving':
-                return False  # Wait for move to complete
-                
-            # Error states
-            if state in ['error', 'missingFiles', 'unknown']:
-                return False
-                
-            return False
-        
-        recheck_success = self._retry_operation(
-            recheck_operation,
-            verify_recheck,
-            "recheck torrent",
-            max_retries=5,
-            retry_delay=15,
-            initial_wait=2  # Longer initial wait for recheck
-        )
-        
-        # Even if recheck "failed", try to resume if torrent exists
-        torrent_info = self.get_torrent_info(
-            status_filter=None,
-            category=None,
-            tags=None,
-            sort=None,
-            reverse=False,
-            torrent_hash=torrent_hash
-        )
-        
-        if not torrent_info:
-            return False
-            
-        def resume_operation():
+            # Resume the torrent
             self.api_client.torrents_resume(torrent_hashes=torrent_hash)
             
-        def verify_resume():
+            # Wait a bit before final check
+            time.sleep(1)
+            
+            # Verify torrent is active
             torrent_info = self.get_torrent_info(
                 status_filter=None,
                 category=None,
@@ -386,32 +439,21 @@ class QbittorrentClient(BittorrentClient):
                 reverse=False,
                 torrent_hash=torrent_hash
             )
-            if not torrent_info:
+            
+            matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
+            if not matching_torrents:
                 return False
                 
-            state = torrent_info[0].state
-            
-            # States indicating active operation
-            active_states = [
-                # Active transfer states
+            state = matching_torrents[0].state
+            # States indicating torrent is active or queued
+            valid_states = [
                 'downloading', 'uploading',
                 'stalledDL', 'stalledUP',
                 'forcedDL', 'forcedUP',
-                'metaDL',
-                # Verification states (acceptable since they're part of normal operation)
-                'checkingDL', 'checkingUP',
-                # Special states
-                'allocating'
+                'metaDL', 'allocating',
+                'queuedDL', 'queuedUP'
             ]
-            return state in active_states
-            
-        resume_success = self._retry_operation(
-            resume_operation,
-            verify_resume,
-            "resume torrent",
-            max_retries=3,
-            retry_delay=5,
-            initial_wait=1
-        )
-        
-        return resume_success
+            return state in valid_states
+                
+        except Exception as e:
+            raise Exception(f"Failed to recheck and resume torrent: {str(e)}")

@@ -54,8 +54,10 @@ def add_release_by_url(config):
     title.release_group = torrent.author
     default_meta = config.application_config.default_meta
     title.meta = default_meta
-    config.operation_result = add(config, title, torrent)
-
+    result = add(config, title, torrent)
+    
+    # Preserve the response code from the add operation
+    config.operation_result.response_code = result.response_code
     return config.operation_result
 
 

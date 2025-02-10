@@ -5,7 +5,7 @@ import time
 from toloka2MediaServer.clients.bittorrent_client import BittorrentClient
 
 from toloka2MediaServer.config_parser import update_config
-from toloka2MediaServer.models.operation_result import OperationResult
+from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
 from toloka2MediaServer.models.title import Title, title_to_config
 from toloka2MediaServer.utils.general import (
     get_numbers,
@@ -32,7 +32,16 @@ def process_torrent(config, title, torrent, new=False):
         is_paused=True,
         download_dir=title.download_dir,
     )
+    
+    if add_torrent_response is None:
+        message = f"Torrent already exists: {torrent.name}"
+        config.operation_result.operation_logs.append(message)
+        config.logger.info(message)
+        config.operation_result.response_code = ResponseCode.FAILURE
+        return config.operation_result
+
     time.sleep(config.application_config.client_wait_time)
+    
     if config.application_config.client == "qbittorrent":
         filtered_torrents = config.client.get_torrent_info(
             status_filter="paused",
@@ -41,8 +50,15 @@ def process_torrent(config, title, torrent, new=False):
             sort="added_on",
             reverse=True,
         )
+        if not filtered_torrents:
+            message = f"Failed to get torrent info after adding: {torrent.name}"
+            config.operation_result.operation_logs.append(message)
+            config.logger.error(message)
+            config.operation_result.response_code = ResponseCode.FAILURE
+            return config.operation_result
+            
         added_torrent = filtered_torrents[0]
-        title.hash = added_torrent.info.hash
+        title.hash = added_torrent.hash
         get_filelist = config.client.get_files(title.hash)
 
     else:
@@ -137,12 +153,14 @@ def process_torrent(config, title, torrent, new=False):
         if new:
             success = config.client.resume_torrent(torrent_hashes=title.hash)
         else:
-            success = config.client.recheck_and_resume(torrent_hashes=title.hash)
+            success = config.client.recheck_and_resume(torrent_hash=title.hash)
             
         if not success:
             message = f"Failed to start torrent: {torrent.name}"
             config.operation_result.operation_logs.append(message)
             config.logger.error(message)
+            config.operation_result.response_code = ResponseCode.FAILURE
+            return config.operation_result
     else:
         if new:
             config.client.resume_torrent(torrent_hashes=title.hash)
@@ -153,6 +171,7 @@ def process_torrent(config, title, torrent, new=False):
     titleConfig = title_to_config(title)
     update_config(titleConfig, title.code_name)
 
+    config.operation_result.response_code = ResponseCode.SUCCESS
     return config.operation_result
 
 
@@ -160,6 +179,7 @@ def update(config, title):
     config.operation_result.titles_references.append(title)
     if title == None:
         config.operation_result.operation_logs.append("Title not found")
+        config.operation_result.response_code = ResponseCode.FAILURE
         return config.operation_result
         
     guid = title.guid.strip('"') if title.guid else ""
@@ -178,6 +198,7 @@ def update(config, title):
                 message = f"Failed to delete old torrent: {torrent.name}"
                 config.operation_result.operation_logs.append(message)
                 config.logger.error(message)
+                config.operation_result.response_code = ResponseCode.FAILURE
                 return config.operation_result
                 
             # Wait a bit before adding new torrent
@@ -188,12 +209,9 @@ def update(config, title):
         message = f"Update not required! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
         config.logger.info(message)
+        config.operation_result.response_code = ResponseCode.SUCCESS
 
     return config.operation_result
-
-
-# torrent, title, operation_result, logger, toloka, client, application_config, titles_config, operation_result
-
 
 def add(config, title, torrent):
     config.operation_result.titles_references.append(title)

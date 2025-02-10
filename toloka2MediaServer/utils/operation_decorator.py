@@ -21,13 +21,13 @@ def operation_tracker(operation_type):
             # Set operation details
             config.operation_result.operation_type = operation_type
             config.operation_result.start_time = datetime.now()
-            config.operation_result.response_code = (
-                ResponseCode.PARTIAL
-            )  # Assume partial unless completed
+            config.operation_result.response_code = ResponseCode.PARTIAL  # Initial state
 
             try:
-                config.operation_result = func(*args, **kwargs)
-                config.operation_result.response_code = ResponseCode.SUCCESS
+                result = func(*args, **kwargs)
+                # Don't override the response_code if it was set to FAILURE by the function
+                if config.operation_result.response_code == ResponseCode.PARTIAL:
+                    config.operation_result.response_code = ResponseCode.SUCCESS
             except Exception as e:
                 config.operation_result.response_code = ResponseCode.FAILURE
                 if not hasattr(config.operation_result, "operation_logs"):
