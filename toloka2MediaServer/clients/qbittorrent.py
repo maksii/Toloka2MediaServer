@@ -361,6 +361,14 @@ class QbittorrentClient(BittorrentClient):
             bool: True if operation was successful
         """
         try:
+            # Add overall timeout
+            overall_start_time = time.time()
+            overall_timeout = 300  # 5 minutes total timeout
+            
+            def check_overall_timeout():
+                if time.time() - overall_start_time > overall_timeout:
+                    raise TimeoutError("Operation timed out after 5 minutes")
+
             # First verify torrent exists
             initial_check = self.get_torrent_info(
                 status_filter=None,
@@ -375,12 +383,19 @@ class QbittorrentClient(BittorrentClient):
                 return False
                 
             # Start recheck
-            self.api_client.torrents_recheck(torrent_hashes=torrent_hash)
+            try:
+                self.api_client.torrents_recheck(torrent_hashes=torrent_hash)
+            except Exception as e:
+                # If recheck fails but torrent exists, continue to resume
+                pass
             
             # Wait for recheck to start (with retry)
-            check_interval = 1
+            check_interval = 3
             max_retries = 10
+            recheck_started = False
+            
             for _ in range(max_retries):
+                check_overall_timeout()
                 torrent_info = self.get_torrent_info(
                     status_filter=None,
                     category=None,
@@ -396,39 +411,49 @@ class QbittorrentClient(BittorrentClient):
                     
                 state = matching_torrents[0].state
                 if state in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
+                    recheck_started = True
                     break
                     
                 time.sleep(check_interval)
-            else:
-                return False  # Recheck didn't start
+            
+            # If recheck didn't start, still try to resume
+            if recheck_started:
+                # Wait for check to complete with timeout
+                check_timeout = 30
+                start_time = time.time()
                 
-            # Now wait indefinitely for check to complete
-            while True:
-                torrent_info = self.get_torrent_info(
-                    status_filter=None,
-                    category=None,
-                    tags=None,
-                    sort=None,
-                    reverse=False,
-                    torrent_hash=torrent_hash
-                )
-                
-                matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
-                if not matching_torrents:
-                    return False
+                while time.time() - start_time < check_timeout:
+                    check_overall_timeout()
+                    torrent_info = self.get_torrent_info(
+                        status_filter=None,
+                        category=None,
+                        tags=None,
+                        sort=None,
+                        reverse=False,
+                        torrent_hash=torrent_hash
+                    )
                     
-                state = matching_torrents[0].state
-                # If no longer checking, break
-                if state not in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
-                    break
-                    
-                time.sleep(2)
+                    matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
+                    if not matching_torrents:
+                        return False
+                        
+                    state = matching_torrents[0].state
+                    # If no longer checking, break
+                    if state not in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
+                        break
+                        
+                    time.sleep(2)
             
             # Resume the torrent
-            self.api_client.torrents_resume(torrent_hashes=torrent_hash)
+            try:
+                self.api_client.torrents_resume(torrent_hashes=torrent_hash)
+            except Exception as e:
+                # If resume fails but torrent is active, consider it successful
+                pass
             
             # Wait a bit before final check
             time.sleep(1)
+            check_overall_timeout()
             
             # Verify torrent is active
             torrent_info = self.get_torrent_info(
@@ -451,9 +476,27 @@ class QbittorrentClient(BittorrentClient):
                 'stalledDL', 'stalledUP',
                 'forcedDL', 'forcedUP',
                 'metaDL', 'allocating',
-                'queuedDL', 'queuedUP'
+                'queuedDL', 'queuedUP',
+                'checkingDL', 'checkingUP'  # Also consider checking states as valid
             ]
             return state in valid_states
                 
+        except TimeoutError as e:
+            raise Exception(f"Operation timed out: {str(e)}")
         except Exception as e:
+            # Log error but return True if we can verify torrent is active
+            try:
+                torrent_info = self.get_torrent_info(
+                    status_filter=None,
+                    category=None,
+                    tags=None,
+                    sort=None,
+                    reverse=False,
+                    torrent_hash=torrent_hash
+                )
+                matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
+                if matching_torrents and matching_torrents[0].state in valid_states:
+                    return True
+            except:
+                pass
             raise Exception(f"Failed to recheck and resume torrent: {str(e)}")
