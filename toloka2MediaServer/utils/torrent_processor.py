@@ -162,7 +162,10 @@ def process_torrent(config, title, torrent, new=False):
         if new:
             success = config.client.resume_torrent(torrent_hashes=title.hash)
         else:
-            success = config.client.recheck_and_resume(torrent_hash=title.hash)
+            success, message = config.client.recheck_and_resume(torrent_hash=title.hash)
+            if message:
+                config.operation_result.operation_logs.append(message)
+                config.logger.warning(message)
             
         if not success:
             message = f"Failed to start torrent: {torrent.name}"

@@ -1,5 +1,6 @@
 import qbittorrentapi
 import time
+import random
 
 from toloka2MediaServer.clients.bittorrent_client import BittorrentClient
 
@@ -55,11 +56,18 @@ class QbittorrentClient(BittorrentClient):
             str: Torrent hash if successful, None if torrent already exists
         """
         try:
+            # Create unique temporary tag
+            temp_tag = f"temp_{int(time.time())}_{random.randint(1000, 9999)}"
+            
+            # Combine with user tags
+            combined_tags = tags.copy() if isinstance(tags, list) else [tags] if tags else []
+            combined_tags.append(temp_tag)
+            
             # Try to add the torrent
             self.api_client.torrents.add(
                 torrent_files=torrents, 
                 category=category, 
-                tags=tags, 
+                tags=combined_tags, 
                 is_paused=is_paused, 
                 download_path=download_dir
             )
@@ -67,17 +75,27 @@ class QbittorrentClient(BittorrentClient):
             # Wait a bit before checking
             time.sleep(1)
             
-            # Get the most recently added torrent
+            # Get torrent with our unique tag
             torrents = self.get_torrent_info(
-                status_filter=None,  # Changed from "paused" to None to catch all states
+                status_filter=None,
                 category=category,
-                tags=tags,
+                tags=temp_tag,  # Search by unique temp tag
                 sort='added_on',
                 reverse=True
             )
             
             if torrents:
-                return torrents[0].hash
+                torrent_hash = torrents[0].hash
+                # Remove temporary tag
+                try:
+                    self.api_client.torrents_remove_tags(
+                        tags=temp_tag,
+                        torrent_hashes=torrent_hash
+                    )
+                except:
+                    # If removing temp tag fails, it's not critical
+                    pass
+                return torrent_hash
                 
             # If we get here, likely the torrent already exists
             return None
@@ -91,12 +109,30 @@ class QbittorrentClient(BittorrentClient):
     def get_torrent_info(
         self, status_filter, category, tags, sort, reverse, torrent_hash=None
     ):
+        """Retrieve list of torrents.
+        
+        Args:
+            status_filter (str): Filter torrents by status:
+                'all', 'downloading', 'seeding', 'completed',
+                'paused', 'active', 'inactive', 'resumed', 'errored',
+                'stalled', 'stalled_uploading', 'stalled_downloading',
+                'checking', 'moving', 'stopped', 'running'
+            category (str): Filter by category
+            tags (list): Filter by tags
+            sort (str): Sort by property
+            reverse (bool): Reverse sort order
+            torrent_hash (str): Filter by torrent hash
+            
+        Returns:
+            TorrentInfoList: List of matching torrents
+        """
         return self.api_client.torrents_info(
             status_filter=status_filter,
             category=category,
             tag=tags,
             sort=sort,
             reverse=reverse,
+            torrent_hashes=torrent_hash
         )
 
     def get_files(self, torrent_hash):
@@ -219,6 +255,9 @@ class QbittorrentClient(BittorrentClient):
             
         Returns:
             bool: True if rename was successful
+            
+        Raises:
+            NotFound404Error: If torrent not found
         """
         def operation():
             self.api_client.torrents_rename(
@@ -235,7 +274,6 @@ class QbittorrentClient(BittorrentClient):
                 reverse=False,
                 torrent_hash=torrent_hash
             )
-            # Verify both that torrent exists and has the new name
             return torrent_info and len(torrent_info) > 0 and torrent_info[0].name == new_torrent_name
             
         return self._retry_operation(
@@ -380,7 +418,7 @@ class QbittorrentClient(BittorrentClient):
             )
             
             if not any(t.hash == torrent_hash for t in initial_check):
-                return False
+                return (False, None)
                 
             # Start recheck
             try:
@@ -407,12 +445,18 @@ class QbittorrentClient(BittorrentClient):
                 
                 matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
                 if not matching_torrents:
-                    return False
+                    return (False, None)
                     
                 state = matching_torrents[0].state
                 if state in ['checkingResumeData', 'checking', 'checkingDL', 'checkingUP']:
                     recheck_started = True
                     break
+                elif state == 'stoppedDL':
+                    # If torrent is still stopped, try recheck again
+                    try:
+                        self.api_client.torrents_recheck(torrent_hashes=torrent_hash)
+                    except Exception:
+                        pass
                     
                 time.sleep(check_interval)
             
@@ -435,7 +479,7 @@ class QbittorrentClient(BittorrentClient):
                     
                     matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
                     if not matching_torrents:
-                        return False
+                        return (False, None)
                         
                     state = matching_torrents[0].state
                     # If no longer checking, break
@@ -467,7 +511,7 @@ class QbittorrentClient(BittorrentClient):
             
             matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
             if not matching_torrents:
-                return False
+                return (False, None)
                 
             state = matching_torrents[0].state
             # States indicating torrent is active or queued
@@ -479,7 +523,32 @@ class QbittorrentClient(BittorrentClient):
                 'queuedDL', 'queuedUP',
                 'checkingDL', 'checkingUP'  # Also consider checking states as valid
             ]
-            return state in valid_states
+            
+            if state in valid_states:
+                return (True, None)
+            elif state == 'stoppedDL':
+                # If torrent is still stopped, try to start it anyway
+                try:
+                    self.api_client.torrents_resume(torrent_hashes=torrent_hash)
+                    time.sleep(2)  # Wait a bit for the start command to take effect
+                    
+                    # Check if it started
+                    final_check = self.get_torrent_info(
+                        status_filter=None,
+                        category=None,
+                        tags=None,
+                        sort=None,
+                        reverse=False,
+                        torrent_hash=torrent_hash
+                    )
+                    matching = [t for t in final_check if t.hash == torrent_hash]
+                    if matching and matching[0].state in valid_states:
+                        # Successfully started but recheck failed
+                        return (True, f"Recheck failed for torrent {torrent_hash}, but successfully started it")
+                except Exception:
+                    pass
+                    
+            return (False, None)
                 
         except TimeoutError as e:
             raise Exception(f"Operation timed out: {str(e)}")
@@ -496,7 +565,7 @@ class QbittorrentClient(BittorrentClient):
                 )
                 matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
                 if matching_torrents and matching_torrents[0].state in valid_states:
-                    return True
+                    return (True, None)
             except:
                 pass
             raise Exception(f"Failed to recheck and resume torrent: {str(e)}")
