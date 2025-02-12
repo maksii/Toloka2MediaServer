@@ -56,5 +56,8 @@ def get_parser():
     add_group.add_argument(
         "-p", "--path", type=str, help="Series path", required=False
     )
+    add_group.add_argument(
+        "--partial", action="store_true", help="Indicate if this is a partial season release", required=False
+    )
 
     return parser

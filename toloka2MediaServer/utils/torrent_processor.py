@@ -78,7 +78,6 @@ def process_torrent(config, title, torrent, new=False):
     first_fileName = get_filelist[0].name
 
     if new:
-
         title.guid = torrent.url
         # Extract numbers from the filename
         numbers = get_numbers(first_fileName)
@@ -114,6 +113,8 @@ def process_torrent(config, title, torrent, new=False):
             title.episode_index = episode_index
             title.adjusted_episode_number = adjusted_episode_number
 
+    # Store episode range for partial seasons
+    episode_range = []
     for file in get_filelist:
         ext_name = file.name.split('.')[-1]
 
@@ -121,6 +122,7 @@ def process_torrent(config, title, torrent, new=False):
         calculated_episode = str(
             int(source_episode) + title.adjusted_episode_number
         ).zfill(len(source_episode))
+        episode_range.append(int(calculated_episode))
 
         if config.application_config.enable_dot_spacing_in_file_name:
             # Use dots as separators and no hyphen
@@ -139,7 +141,14 @@ def process_torrent(config, title, torrent, new=False):
             torrent_hash=title.hash, old_path=file.name, new_path=new_path
         )
 
-    folderName = f"{title.torrent_name} S{title.season_number} {title.meta}[{title.release_group}]"
+    # Determine folder name based on whether it's a partial season and Sonarr support is enabled
+    if title.is_partial_season and hasattr(config.application_config, 'sonarr_support') and config.application_config.sonarr_support:
+        min_ep = min(episode_range)
+        max_ep = max(episode_range)
+        folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)}-E{str(max_ep).zfill(2)} {title.meta}[{title.release_group}]"
+    else:
+        folderName = f"{title.torrent_name} S{title.season_number} {title.meta}[{title.release_group}]"
+
     if config.application_config.enable_dot_spacing_in_file_name:
         folderName = folderName.replace("  ", ".").replace(" ", ".")
 
@@ -192,6 +201,17 @@ def update(config, title):
         config.logger.info(message)
         
         if not config.args.force:
+            # If it's a partial season with Sonarr support, rename to base format first
+            if title.is_partial_season and hasattr(config.application_config, 'sonarr_support') and config.application_config.sonarr_support:
+                config.logger.info("Processing partial season update with Sonarr support")
+                if config.application_config.client == "qbittorrent":
+                    base_folder = f"{title.torrent_name} S{title.season_number}"
+                    config.client.rename_folder(
+                        torrent_hash=title.hash,
+                        old_path=get_folder_name_from_path(config.client.get_files(title.hash)[0].name),
+                        new_path=base_folder
+                    )
+            
             # Delete old torrent but keep files
             delete_success = config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
             if not delete_success:
@@ -204,7 +224,7 @@ def update(config, title):
             # Wait a bit before adding new torrent
             time.sleep(config.application_config.client_wait_time)
             
-        config.operation_result = process_torrent(config, title, torrent)
+            config.operation_result = process_torrent(config, title, torrent)
     else:
         message = f"Update not required! : {torrent.name}"
         config.operation_result.operation_logs.append(message)

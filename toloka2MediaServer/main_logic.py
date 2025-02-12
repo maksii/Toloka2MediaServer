@@ -43,6 +43,11 @@ def add_release_by_url(config):
     else:
         title.code_name = base_code_name
 
+    # Set partial season flag if provided
+    title.is_partial_season = bool(getattr(config.args, 'partial', False))
+    if title.is_partial_season:
+        config.logger.info(f"Processing as partial season release for {title.code_name}")
+
     # Collect additional data
     title.season_number = season_number.zfill(2)
     default_download_dir = config.application_config.default_download_dir
