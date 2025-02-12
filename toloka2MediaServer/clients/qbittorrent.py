@@ -496,7 +496,7 @@ class QbittorrentClient(BittorrentClient):
                 pass
             
             # Wait a bit before final check
-            time.sleep(1)
+            time.sleep(3)
             check_overall_timeout()
             
             # Verify torrent is active
@@ -525,7 +525,7 @@ class QbittorrentClient(BittorrentClient):
             ]
             
             if state in valid_states:
-                return (True, None)
+                return (True, f"Torrent active in state: {state}")
             elif state == 'stoppedDL':
                 # If torrent is still stopped, try to start it anyway
                 try:
@@ -548,7 +548,46 @@ class QbittorrentClient(BittorrentClient):
                 except Exception:
                     pass
                     
-            return (False, None)
+            # After final resume attempt, do multiple checks with increasing delays
+            check_attempts = 3
+            for attempt in range(check_attempts):
+                time.sleep(2 * (attempt + 1))  # Increasing delay: 2s, 4s, 6s
+                
+                final_check = self.get_torrent_info(
+                    status_filter=None,
+                    category=None,
+                    tags=None,
+                    sort=None,
+                    reverse=False,
+                    torrent_hash=torrent_hash
+                )
+                
+                matching = [t for t in final_check if t.hash == torrent_hash]
+                if matching:
+                    current_state = matching[0].state
+                    if current_state in valid_states:
+                        return (True, f"Torrent active in state: {current_state}")
+                    elif attempt < check_attempts - 1:
+                        # Try to resume again if not in last attempt
+                        try:
+                            self.api_client.torrents_resume(torrent_hashes=torrent_hash)
+                        except:
+                            pass
+
+            # Final fallback check - if torrent exists and isn't in an error state, consider it successful
+            final_check = self.get_torrent_info(
+                status_filter=None,
+                category=None,
+                tags=None,
+                sort=None,
+                reverse=False,
+                torrent_hash=torrent_hash
+            )
+            matching = [t for t in final_check if t.hash == torrent_hash]
+            if matching and matching[0].state not in ['error', 'missingFiles', 'unknown']:
+                return (True, f"Torrent exists in state: {matching[0].state}")
+
+            return (False, f"Torrent in invalid state: {matching[0].state if matching else 'not found'}")
                 
         except TimeoutError as e:
             raise Exception(f"Operation timed out: {str(e)}")
@@ -564,8 +603,8 @@ class QbittorrentClient(BittorrentClient):
                     torrent_hash=torrent_hash
                 )
                 matching_torrents = [t for t in torrent_info if t.hash == torrent_hash]
-                if matching_torrents and matching_torrents[0].state in valid_states:
-                    return (True, None)
+                if matching_torrents and matching_torrents[0].state not in ['error', 'missingFiles', 'unknown']:
+                    return (True, f"Torrent exists despite error: {matching_torrents[0].state}")
             except:
                 pass
             raise Exception(f"Failed to recheck and resume torrent: {str(e)}")
