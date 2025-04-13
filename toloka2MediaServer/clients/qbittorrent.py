@@ -211,9 +211,9 @@ class QbittorrentClient(BittorrentClient):
             operation,
             verify,
             "rename file",
-            max_retries=3,
-            retry_delay=2,
-            initial_wait=1
+            max_retries=10,
+            retry_delay=3,
+            initial_wait=3
         )
 
     def rename_folder(self, torrent_hash, old_path, new_path):
@@ -245,9 +245,9 @@ class QbittorrentClient(BittorrentClient):
             operation,
             verify,
             "rename folder",
-            max_retries=3,
-            retry_delay=2,
-            initial_wait=1
+            max_retries=10,
+            retry_delay=3,
+            initial_wait=3
         )
 
     def rename_torrent(self, torrent_hash, new_torrent_name):
@@ -284,9 +284,9 @@ class QbittorrentClient(BittorrentClient):
             operation,
             verify,
             "rename torrent",
-            max_retries=3,
-            retry_delay=2,
-            initial_wait=1
+            max_retries=10,
+            retry_delay=3,
+            initial_wait=3
         )
 
     def resume_torrent(self, torrent_hashes):
@@ -329,9 +329,9 @@ class QbittorrentClient(BittorrentClient):
             operation,
             verify,
             "resume torrent",
-            max_retries=3,
+            max_retries=10,
             retry_delay=5,
-            initial_wait=1
+            initial_wait=3
         )
 
     def delete_torrent(self, delete_files, torrent_hashes):
@@ -405,7 +405,7 @@ class QbittorrentClient(BittorrentClient):
         try:
             # Add overall timeout
             overall_start_time = time.time()
-            overall_timeout = 300  # 5 minutes total timeout
+            overall_timeout = 360
             
             def check_overall_timeout():
                 if time.time() - overall_start_time > overall_timeout:
@@ -432,7 +432,7 @@ class QbittorrentClient(BittorrentClient):
                 pass
             
             # Wait for recheck to start (with retry)
-            check_interval = 3
+            check_interval = 10
             max_retries = 10
             recheck_started = False
             
