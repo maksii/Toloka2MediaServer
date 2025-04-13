@@ -88,10 +88,14 @@ class QbittorrentClient(BittorrentClient):
                 torrent_hash = torrents[0].hash
                 # Remove temporary tag
                 try:
+                    # First remove tag from this torrent
                     self.api_client.torrents_remove_tags(
                         tags=temp_tag,
                         torrent_hashes=torrent_hash
                     )
+                    
+                    # Delete the temporary tag completely
+                    self.api_client.torrents_delete_tags(tags=temp_tag)
                 except:
                     # If removing temp tag fails, it's not critical
                     pass
