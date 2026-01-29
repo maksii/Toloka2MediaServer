@@ -120,13 +120,6 @@ def process_torrent(config, title, torrent, new=False):
     # Store episode range for partial seasons
     episode_range = []
     
-    # Check if we're in partial season mode with sonarr support
-    is_partial_with_sonarr = (
-        title.is_partial_season 
-        and hasattr(config.application_config, 'sonarr_support') 
-        and config.application_config.sonarr_support
-    )
-    
     for file in get_filelist:
         ext_name = file.name.split('.')[-1]
 
@@ -152,7 +145,7 @@ def process_torrent(config, title, torrent, new=False):
         
         # In partial season mode, skip files that already have the desired name
         # This allows recheck to work by keeping existing files unchanged
-        if is_partial_with_sonarr:
+        if title.is_partial_season:
             # Extract just the filename from paths for comparison
             current_filename = file.name.split('/')[-1] if '/' in file.name else file.name
             desired_filename = new_path.split('/')[-1] if '/' in new_path else new_path
@@ -165,8 +158,8 @@ def process_torrent(config, title, torrent, new=False):
             torrent_hash=title.hash, old_path=file.name, new_path=new_path
         )
 
-    # Determine folder name based on whether it's a partial season and Sonarr support is enabled
-    if is_partial_with_sonarr:
+    # Determine folder name based on whether it's a partial season
+    if title.is_partial_season:
         min_ep = min(episode_range)
         max_ep = max(episode_range)
         
@@ -251,16 +244,9 @@ def update(config, title):
         config.logger.info(message)
         
         if not config.args.force:
-            # Check if we're in partial season mode with sonarr support
-            is_partial_with_sonarr = (
-                title.is_partial_season 
-                and hasattr(config.application_config, 'sonarr_support') 
-                and config.application_config.sonarr_support
-            )
-            
-            # If it's a partial season with Sonarr support, rename to base format first
-            if is_partial_with_sonarr:
-                config.logger.info("Processing partial season update with Sonarr support")
+            # If it's a partial season, rename to base format first
+            if title.is_partial_season:
+                config.logger.info("Processing partial season update")
                 if config.application_config.client == "qbittorrent":
                     base_folder = f"{title.torrent_name} S{title.season_number}"
                     config.client.rename_folder(

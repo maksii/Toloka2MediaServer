@@ -12,7 +12,6 @@ class Application:
     wait_time: int = 0
     client_wait_time: int = 0
     enable_dot_spacing_in_file_name: bool = True
-    sonarr_support: bool = False
 
 
 def app_to_config(app):
