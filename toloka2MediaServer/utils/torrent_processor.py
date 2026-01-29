@@ -43,12 +43,17 @@ def process_torrent(config, title, torrent, new=False):
     time.sleep(config.application_config.client_wait_time)
     
     if config.application_config.client == "qbittorrent":
+        # Use the hash returned from add_torrent (calculated from torrent file)
+        title.hash = add_torrent_response
+        
+        # Get torrent info using the known hash
         filtered_torrents = config.client.get_torrent_info(
             status_filter="paused",
             category=category,
             tags=tag,
             sort="added_on",
             reverse=True,
+            torrent_hash=title.hash,
         )
         if not filtered_torrents:
             message = f"Failed to get torrent info after adding: {torrent.name}"
@@ -58,7 +63,6 @@ def process_torrent(config, title, torrent, new=False):
             return config.operation_result
             
         added_torrent = filtered_torrents[0]
-        title.hash = added_torrent.hash
         get_filelist = config.client.get_files(title.hash)
 
     else:
@@ -115,6 +119,14 @@ def process_torrent(config, title, torrent, new=False):
 
     # Store episode range for partial seasons
     episode_range = []
+    
+    # Check if we're in partial season mode with sonarr support
+    is_partial_with_sonarr = (
+        title.is_partial_season 
+        and hasattr(config.application_config, 'sonarr_support') 
+        and config.application_config.sonarr_support
+    )
+    
     for file in get_filelist:
         ext_name = file.name.split('.')[-1]
 
@@ -137,15 +149,33 @@ def process_torrent(config, title, torrent, new=False):
             new_path = replace_second_part_in_path(file.name, new_name)
         else:
             new_path = new_name
+        
+        # In partial season mode, skip files that already have the desired name
+        # This allows recheck to work by keeping existing files unchanged
+        if is_partial_with_sonarr:
+            # Extract just the filename from paths for comparison
+            current_filename = file.name.split('/')[-1] if '/' in file.name else file.name
+            desired_filename = new_path.split('/')[-1] if '/' in new_path else new_path
+            
+            if current_filename == desired_filename:
+                config.logger.debug(f"Skipping rename for existing file: {current_filename}")
+                continue
+        
         config.client.rename_file(
             torrent_hash=title.hash, old_path=file.name, new_path=new_path
         )
 
     # Determine folder name based on whether it's a partial season and Sonarr support is enabled
-    if title.is_partial_season and hasattr(config.application_config, 'sonarr_support') and config.application_config.sonarr_support:
+    if is_partial_with_sonarr:
         min_ep = min(episode_range)
         max_ep = max(episode_range)
-        folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)}-E{str(max_ep).zfill(2)} {title.meta}[{title.release_group}]"
+        
+        # Handle single episode case - don't use range notation for single episode
+        if min_ep == max_ep:
+            folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)} {title.meta}[{title.release_group}]"
+        else:
+            # Use range notation with properly determined min/max
+            folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)}-E{str(max_ep).zfill(2)} {title.meta}[{title.release_group}]"
     else:
         folderName = f"{title.torrent_name} S{title.season_number} {title.meta}[{title.release_group}]"
 
@@ -160,19 +190,36 @@ def process_torrent(config, title, torrent, new=False):
 
     if config.application_config.client == "qbittorrent":
         if new:
+            # New torrent - just resume, no recheck needed
             success = config.client.resume_torrent(torrent_hashes=title.hash)
+            if not success:
+                message = f"Failed to start torrent: {torrent.name}"
+                config.operation_result.operation_logs.append(message)
+                config.logger.error(message)
+                config.operation_result.response_code = ResponseCode.FAILURE
+                return config.operation_result
         else:
-            success, message = config.client.recheck_and_resume(torrent_hash=title.hash)
+            # Update scenario - use async recheck (returns quickly, completes in background)
+            # This allows web UI to respond without waiting 30+ minutes for recheck
+            success, message = config.client.recheck_and_resume_async(
+                torrent_hash=title.hash,
+                on_complete=lambda ok, msg: config.logger.info(
+                    f"Background recheck completed for {torrent.name}: {ok}, {msg}"
+                )
+            )
             if message:
                 config.operation_result.operation_logs.append(message)
-                config.logger.warning(message)
+                if success:
+                    config.logger.info(message)
+                else:
+                    config.logger.error(message)
             
-        if not success:
-            message = f"Failed to start torrent: {torrent.name}"
-            config.operation_result.operation_logs.append(message)
-            config.logger.error(message)
-            config.operation_result.response_code = ResponseCode.FAILURE
-            return config.operation_result
+            if not success:
+                message = f"Failed to start recheck for torrent: {torrent.name}"
+                config.operation_result.operation_logs.append(message)
+                config.logger.error(message)
+                config.operation_result.response_code = ResponseCode.FAILURE
+                return config.operation_result
     else:
         if new:
             config.client.resume_torrent(torrent_hashes=title.hash)
@@ -204,8 +251,15 @@ def update(config, title):
         config.logger.info(message)
         
         if not config.args.force:
+            # Check if we're in partial season mode with sonarr support
+            is_partial_with_sonarr = (
+                title.is_partial_season 
+                and hasattr(config.application_config, 'sonarr_support') 
+                and config.application_config.sonarr_support
+            )
+            
             # If it's a partial season with Sonarr support, rename to base format first
-            if title.is_partial_season and hasattr(config.application_config, 'sonarr_support') and config.application_config.sonarr_support:
+            if is_partial_with_sonarr:
                 config.logger.info("Processing partial season update with Sonarr support")
                 if config.application_config.client == "qbittorrent":
                     base_folder = f"{title.torrent_name} S{title.season_number}"
