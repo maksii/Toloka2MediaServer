@@ -1,5 +1,6 @@
 """Functions for working with torrents"""
 
+import re
 import time
 
 from toloka2MediaServer.clients.bittorrent_client import BittorrentClient
@@ -244,14 +245,19 @@ def update(config, title):
         config.logger.info(message)
         
         if not config.args.force:
-            # If it's a partial season, rename to base format first
-            if title.is_partial_season:
-                config.logger.info("Processing partial season update")
-                if config.application_config.client == "qbittorrent":
+            # Check if folder needs to be renamed to base format before update
+            # This handles both partial seasons and transitions from partial to non-partial
+            if config.application_config.client == "qbittorrent":
+                current_folder = get_folder_name_from_path(config.client.get_files(title.hash)[0].name)
+                # Check if folder has episode range pattern (e.g., S01E01-E12 or S01E01)
+                has_episode_range = re.search(r'S\d+E\d+(-E\d+)?', current_folder) is not None
+                
+                if title.is_partial_season or has_episode_range:
+                    config.logger.info("Renaming folder to base format before update")
                     base_folder = f"{title.torrent_name} S{title.season_number}"
                     config.client.rename_folder(
                         torrent_hash=title.hash,
-                        old_path=get_folder_name_from_path(config.client.get_files(title.hash)[0].name),
+                        old_path=current_folder,
                         new_path=base_folder
                     )
             
