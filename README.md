@@ -74,8 +74,7 @@ python -m toloka2MediaServer -a "Kimetsu no Yaiba: Hashira Geiko-hen"
 Enter the index of the desired torrent: 0
 Default:KimetsunoYaibaHashiraGeikohen. Enter the codename:
 Enter the season number: 5
-Enter the file extension, e.g., ".mkv":
-Default: /esata/Downloads/toloka/tr:. Enter the download directory path.
+Default: /media/HDD/Jellyfin/Anime:. Enter the download directory path.
 Default: Kimetsu no Yaiba: Hashira Geiko-hen (2024). Enter the directory name for the downloaded files:
 Enter the release group name, or it will default to the torrent's author:
 Default: [WEBRip-1080p][UK+JA][Ukr Sub]. Enter additional metadata tags:
@@ -111,15 +110,30 @@ Default: [WEBRip-1080p][UK+JA][Ukr Sub]. Enter additional metadata tags:
 	```bash
 	python -m toloka2MediaServer --add --url https://toloka.to/t675888 --season 02 --index 2 --correction 0 --title "Tsukimichi -Moonlit Fantasy-"
 	```
+* **Додати новий торрент автоматично (partial season)**
+	```bash
+	python -m toloka2MediaServer --add --url https://toloka.to/t675888 --season 02 --index 2 --correction 0 --title "Tsukimichi -Moonlit Fantasy-" --partial
+	```
+	> Використовуйте `--partial` для часткових релізів сезону, коли реліз містить не всі епізоди сезону
+* **Додати новий торрент з кастомним шляхом завантаження**
+	```bash
+	python -m toloka2MediaServer --add --url https://toloka.to/t675888 --season 02 --index 2 --correction 0 --title "Tsukimichi -Moonlit Fantasy-" --path "/custom/download/path"
+	```
+	> Використовуйте `--path` для вказання кастомної директорії завантаження замість значення за замовчуванням
 * **Оновити всі торренти**
 	```bash
 	python -m toloka2MediaServer
 	```
 * **Завантажити нові серії, якщо торрент оновився**
 	```bash
-	python -m toloka2MediaServer -с CODENAME
+	python -m toloka2MediaServer -c CODENAME
 	```
 	> Коднейм береться з файлу titles.ini, про нього буде вказано пізніше
+* **Примусово завантажити торрент (ігноруючи перевірку наявності)**
+	```bash
+	python -m toloka2MediaServer -c CODENAME --force
+	```
+	> Використовуйте `--force` для примусового завантаження незалежно від наявності торренту
 * **Отримати список чисел із рядка**
 	```bash
 	python -m toloka2MediaServer -n "text1 123"
@@ -136,6 +150,8 @@ crontab -e
 > 0 8 * * * cd /path/to/toloka2MediaServer/ && python3 -m toloka2MediaServer
 
 ## Конфиги
+
+> **Примітка:** Файли конфігурації повинні бути розташовані у папці `data/` в корені проекту: `data/app.ini` та `data/titles.ini`
 
 * ### app.ini
 ```ini
@@ -191,6 +207,7 @@ meta = [WEBRip-1080p][UK+JA][Ukr Sub]
 hash = 97e3023362ebb41263f3266ac3a72cc56eda0885
 adjusted_episode_number = -8
 guid = t678205
+is_partial_season = False
 
 [Tsukimichi]
 episode_index = 2
@@ -204,6 +221,7 @@ meta = [WEBRip-1080p][UK][Ukr Sub]
 hash = 8bcb2b32b4885e6c4a03f909486a03f26a4c9a62
 adjusted_episode_number = 0
 guid = t675888
+is_partial_season = False
 ```
 	
 ### Конфігурація епізодів аніме
@@ -213,7 +231,7 @@ guid = t675888
 |------------------------|-----------------------------------------------------|------------------------------------------------|----------------------------------------------------------------------|
 | episode_index         | 2                                                   | 2                                              | Індекс, що вказує номер епізоду(звідки брати номер епізоду)                                      |
 | season_number          | 02                                                  | 02                                             | Номер сезону                                            |
-| ext_name               | .mkv                                                | .mkv                                           | Формат файлу                                                        |
+| ext_name               | .mkv                                                | .mkv                                           | (застаріле) Формат файлу - визначається автоматично з файлу         |
 | torrent_name           | "Arknights: Touin Kiro (2022)"                     | "Tsukimichi -Moonlit Fantasy- (2021)"          | Базове ім'я для генерації назви торрента, тек та файлів             |
 | download_dir           |                                                     | /media/HDD/Jellyfin/Anime                      | Директорія для завантаження медіа (використовується в Transmission) |
 | publish_date            | 2024-05-23                                          | 2024-05-21                                     | Системне значення для визначення оновлень торренту                   |
@@ -222,6 +240,7 @@ guid = t675888
 | hash                   | 97e...0885          | 12      | Системне значення - ID торрент файлу для майбутнього пошуку           |
 | adjusted_episode_number | -8                                             | 0                                              | Коригування номера епізоду сезону для абсолютного або азіатського неймінгу |
 | guid                   | t678205                                           | t675888                                      | Системне значення для ідентифікації конкретного аніме у списку        |
+| is_partial_season      | False                                             | False                                        | Чи є реліз частковим сезоном (не всі епізоди)                        |
 
 </small>
 
