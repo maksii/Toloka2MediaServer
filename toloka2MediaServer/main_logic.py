@@ -56,9 +56,10 @@ def add_release_by_url(config):
     else:
         title.download_dir = default_download_dir
     title.torrent_name = config.args.title.strip() or suggested_name.strip()
-    title.release_group = torrent.author
+    # Use args when provided, otherwise library defaults (torrent.author / default_meta)
+    title.release_group = getattr(config.args, "release_group", None) or torrent.author
     default_meta = config.application_config.default_meta
-    title.meta = default_meta
+    title.meta = getattr(config.args, "meta", None) or default_meta
     result = add(config, title, torrent)
     
     # Preserve the response code from the add operation

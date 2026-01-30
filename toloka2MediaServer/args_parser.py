@@ -59,5 +59,11 @@ def get_parser():
     add_group.add_argument(
         "--partial", action="store_true", help="Indicate if this is a partial season release", required=False
     )
+    add_group.add_argument(
+        "--release_group", type=str, help="Release group (default: torrent author)", required=False
+    )
+    add_group.add_argument(
+        "--meta", type=str, help="Metadata tags (default: from app config)", required=False
+    )
 
     return parser
