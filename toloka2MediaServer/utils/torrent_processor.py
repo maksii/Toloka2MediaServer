@@ -15,6 +15,28 @@ from toloka2MediaServer.utils.general import (
 )
 
 
+def _get_file_name_from_path(path):
+    """Extracts the filename from a torrent path string."""
+    if "/" in path:
+        return path.rsplit("/", 1)[-1]
+    if "\\" in path:
+        return path.rsplit("\\", 1)[-1]
+    return path
+
+
+def _numbers_with_context(text, context_len=2):
+    """Extracts numbers with context around them from a string."""
+    results = []
+    for match in re.finditer(r"\d+", text):
+        start, end = match.span()
+        left_start = max(0, start - context_len)
+        right_end = end + context_len
+        left = text[left_start:start]
+        right = text[end:right_end]
+        results.append((match.group(), left, right))
+    return results
+
+
 def process_torrent(config, title, torrent, new=False):
     """Common logic to process torrents, either updating or adding new ones"""
     title.publish_date = torrent.date
@@ -82,6 +104,15 @@ def process_torrent(config, title, torrent, new=False):
 
     first_fileName = get_filelist[0].name
 
+    # Align stored episode_index to filename-only numbers using context
+    full_numbers_ctx = _numbers_with_context(first_fileName, context_len=2)
+    file_name = _get_file_name_from_path(first_fileName)
+    file_numbers_ctx = _numbers_with_context(file_name, context_len=2)
+    if 0 <= title.episode_index < len(full_numbers_ctx):
+        selected_ctx = full_numbers_ctx[title.episode_index]
+        if selected_ctx in file_numbers_ctx:
+            title.episode_index = file_numbers_ctx.index(selected_ctx)
+
     # Update + partial: normalize folder to base format so rest of logic sees consistent paths
     if not new and title.is_partial_season:
         base_folder = f"{title.torrent_name} S{title.season_number}"
@@ -99,7 +130,8 @@ def process_torrent(config, title, torrent, new=False):
     if new:
         title.guid = torrent.url
         # Extract numbers from the filename
-        numbers = get_numbers(first_fileName)
+        file_name = _get_file_name_from_path(first_fileName)
+        numbers = get_numbers(file_name)
 
         if title.episode_index == -1:
             # Display the numbers to the user, starting count from 1
@@ -138,7 +170,8 @@ def process_torrent(config, title, torrent, new=False):
     for file in get_filelist:
         ext_name = file.name.split('.')[-1]
 
-        source_episode = get_numbers(file.name)[title.episode_index]
+        file_name = _get_file_name_from_path(file.name)
+        source_episode = get_numbers(file_name)[title.episode_index]
         calculated_episode = str(
             int(source_episode) + title.adjusted_episode_number
         ).zfill(len(source_episode))
