@@ -82,6 +82,20 @@ def process_torrent(config, title, torrent, new=False):
 
     first_fileName = get_filelist[0].name
 
+    # Update + partial: normalize folder to base format so rest of logic sees consistent paths
+    if not new and title.is_partial_season:
+        base_folder = f"{title.torrent_name} S{title.season_number}"
+        current_folder = get_folder_name_from_path(first_fileName)
+        if current_folder:
+            config.logger.info("Renaming folder to base format before processing")
+            config.client.rename_folder(
+                torrent_hash=title.hash,
+                old_path=current_folder,
+                new_path=base_folder,
+            )
+            get_filelist = config.client.get_files(title.hash)
+            first_fileName = get_filelist[0].name
+
     if new:
         title.guid = torrent.url
         # Extract numbers from the filename
@@ -143,18 +157,7 @@ def process_torrent(config, title, torrent, new=False):
             new_path = replace_second_part_in_path(file.name, new_name)
         else:
             new_path = new_name
-        
-        # In partial season mode, skip files that already have the desired name
-        # This allows recheck to work by keeping existing files unchanged
-        if title.is_partial_season:
-            # Extract just the filename from paths for comparison
-            current_filename = file.name.split('/')[-1] if '/' in file.name else file.name
-            desired_filename = new_path.split('/')[-1] if '/' in new_path else new_path
-            
-            if current_filename == desired_filename:
-                config.logger.debug(f"Skipping rename for existing file: {current_filename}")
-                continue
-        
+
         config.client.rename_file(
             torrent_hash=title.hash, old_path=file.name, new_path=new_path
         )
@@ -245,22 +248,23 @@ def update(config, title):
         config.logger.info(message)
         
         if not config.args.force:
-            # Check if folder needs to be renamed to base format before update
-            # This handles both partial seasons and transitions from partial to non-partial
-            if config.application_config.client == "qbittorrent":
-                current_folder = get_folder_name_from_path(config.client.get_files(title.hash)[0].name)
-                # Check if folder has episode range pattern (e.g., S01E01-E12 or S01E01)
-                has_episode_range = re.search(r'S\d+E\d+(-E\d+)?', current_folder) is not None
-                
-                if title.is_partial_season or has_episode_range:
-                    config.logger.info("Renaming folder to base format before update")
-                    base_folder = f"{title.torrent_name} S{title.season_number}"
-                    config.client.rename_folder(
-                        torrent_hash=title.hash,
-                        old_path=current_folder,
-                        new_path=base_folder
-                    )
-            
+            # Rename folder to base format before update
+            # Handles partial seasons and transitions from partial to non-partial
+            current_folder = get_folder_name_from_path(
+                config.client.get_files(title.hash)[0].name
+            )
+            has_episode_range = (
+                re.search(r"S\d+E\d+(-E\d+)?", current_folder) is not None
+            )
+            if current_folder and (title.is_partial_season or has_episode_range):
+                config.logger.info("Renaming folder to base format before update")
+                base_folder = f"{title.torrent_name} S{title.season_number}"
+                config.client.rename_folder(
+                    torrent_hash=title.hash,
+                    old_path=current_folder,
+                    new_path=base_folder,
+                )
+
             # Delete old torrent but keep files
             delete_success = config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
             if not delete_success:
