@@ -491,10 +491,14 @@ class QbittorrentClient(BittorrentClient):
         def verify():
             files = self.get_files(torrent_hash)
             # Verify both: new path exists AND old path is gone
-            old_exists = any(old_path in f.name for f in files)
-            new_exists = any(new_path in f.name for f in files)
+            def top_folder(path: str) -> str:
+                sep = "/" if "/" in path else "\\"
+                return path.split(sep)[0] if path else ""
+
+            old_exists = any(top_folder(f.name) == old_path for f in files)
+            new_exists = any(top_folder(f.name) == new_path for f in files)
             return new_exists and not old_exists
-        
+
         return self._retry_operation(operation, verify, f"rename folder '{old_path}'")
     
     def rename_torrent(self, torrent_hash: str, new_torrent_name: str) -> bool:
