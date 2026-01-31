@@ -5,8 +5,13 @@ from unittest.mock import patch
 
 from toloka2MediaServer.main_logic import (
     add_release_by_url,
+    add_release_by_name,
     add_torrent,
+    get_torrent,
+    search_torrents,
+    update_release,
     update_release_by_name,
+    update_releases,
 )
 from toloka2MediaServer.models.application import Application
 from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
@@ -16,12 +21,16 @@ class FakeToloka:
     def __init__(self, torrent):
         self.toloka_url = "https://example.com"
         self._torrent = torrent
+        self._search_results = [torrent]
 
     def get_torrent(self, url):
         return self._torrent
 
     def download_torrent(self, url):
         return b"torrent-bytes"
+
+    def search(self, query):
+        return self._search_results
 
 
 class FakeTorrent:
@@ -171,6 +180,112 @@ class MainLogicTests(unittest.TestCase):
         result = add_torrent(config)
 
         self.assertEqual(result.response, "No args provided")
+
+    @patch("toloka2MediaServer.main_logic.add")
+    @patch("builtins.input")
+    def test_add_release_by_name_happy_path(self, mock_input, mock_add):
+        torrent = FakeTorrent("folder/Show Name (2024)")
+        mock_add.return_value = OperationResult(response_code=ResponseCode.SUCCESS)
+        mock_input.side_effect = [
+            "0",
+            "",
+            "1",
+            "",
+            "",
+            "",
+            "",
+        ]
+        config = SimpleNamespace(
+            args=SimpleNamespace(add="Show"),
+            toloka=FakeToloka(torrent),
+            application_config=self.app_config,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+
+        result = add_release_by_name(config)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        passed_title = mock_add.call_args[0][1]
+        self.assertEqual(passed_title.code_name, "ShowName")
+        self.assertEqual(passed_title.season_number, "01")
+        self.assertEqual(passed_title.download_dir, "/downloads")
+        self.assertEqual(passed_title.torrent_name, "Show Name (2024)")
+
+    def test_search_torrents_happy_path(self):
+        torrent = FakeTorrent("folder/Show Name (2024)")
+        config = SimpleNamespace(
+            args="Show",
+            toloka=FakeToloka(torrent),
+            operation_result=OperationResult(),
+        )
+
+        result = search_torrents(config)
+
+        self.assertEqual(result.response, [torrent])
+
+    def test_get_torrent_happy_path(self):
+        torrent = FakeTorrent("folder/Show Name (2024)")
+        config = SimpleNamespace(
+            args="t123",
+            toloka=FakeToloka(torrent),
+            operation_result=OperationResult(),
+        )
+
+        result = get_torrent(config)
+
+        self.assertEqual(result.response, torrent)
+
+    @patch("toloka2MediaServer.main_logic.update")
+    def test_update_release_calls_update(self, mock_update):
+        mock_update.return_value = OperationResult(response_code=ResponseCode.SUCCESS)
+        titles_config = configparser.ConfigParser()
+        titles_config["Show"] = {
+            "episode_index": "0",
+            "season_number": "01",
+            "torrent_name": '"Show"',
+            "download_dir": "/downloads",
+            "publish_date": "2024-01-01",
+            "release_group": "RG",
+            "meta": "WEB",
+            "hash": "hash",
+            "adjusted_episode_number": "0",
+            "guid": "t123",
+            "is_partial_season": "False",
+        }
+        config = SimpleNamespace(
+            args=SimpleNamespace(codename="Show"),
+            titles_config=titles_config,
+            operation_result=OperationResult(),
+        )
+
+        result = update_release(config)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(mock_update.call_args[0][1].code_name, "Show")
+
+    @patch("toloka2MediaServer.main_logic.update_release")
+    @patch("toloka2MediaServer.main_logic.time.sleep", return_value=None)
+    def test_update_releases_updates_each_section(self, _sleep, mock_update_release):
+        mock_update_release.return_value = OperationResult(
+            response_code=ResponseCode.SUCCESS
+        )
+        titles_config = configparser.ConfigParser()
+        titles_config["Show"] = {}
+        titles_config["Other"] = {}
+        config = SimpleNamespace(
+            args=SimpleNamespace(codename=None),
+            titles_config=titles_config,
+            application_config=SimpleNamespace(wait_time=0),
+            client=FakeClient(),
+            operation_result=OperationResult(),
+        )
+
+        result = update_releases(config)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(mock_update_release.call_count, 2)
+        self.assertEqual(config.client.end_session_calls, 1)
 
 
 if __name__ == "__main__":
