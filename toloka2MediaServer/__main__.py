@@ -74,7 +74,7 @@ def main():
         logger.debug(response)
     else:
         # Update all listed titles from titles.ini
-        logger.debug(f"no args, update all")
+        logger.debug("no args, update all")
         response = update_releases(config)
         logger.debug(response)
 

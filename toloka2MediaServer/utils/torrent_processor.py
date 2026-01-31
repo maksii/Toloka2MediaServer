@@ -3,11 +3,9 @@
 import re
 import time
 
-from toloka2MediaServer.clients.bittorrent_client import BittorrentClient
-
 from toloka2MediaServer.config_parser import update_config
-from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
-from toloka2MediaServer.models.title import Title, title_to_config
+from toloka2MediaServer.models.operation_result import ResponseCode
+from toloka2MediaServer.models.title import title_to_config
 from toloka2MediaServer.utils.general import (
     get_numbers,
     replace_second_part_in_path,
@@ -266,7 +264,7 @@ def process_torrent(config, title, torrent, new=False):
 
 def update(config, title):
     config.operation_result.titles_references.append(title)
-    if title == None:
+    if title is None:
         config.operation_result.operation_logs.append("Title not found")
         config.operation_result.response_code = ResponseCode.FAILURE
         return config.operation_result

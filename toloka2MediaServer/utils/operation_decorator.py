@@ -24,7 +24,7 @@ def operation_tracker(operation_type):
             config.operation_result.response_code = ResponseCode.PARTIAL  # Initial state
 
             try:
-                result = func(*args, **kwargs)
+                func(*args, **kwargs)
                 # Don't override the response_code if it was set to FAILURE by the function
                 if config.operation_result.response_code == ResponseCode.PARTIAL:
                     config.operation_result.response_code = ResponseCode.SUCCESS
