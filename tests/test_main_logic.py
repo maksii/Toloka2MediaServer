@@ -65,8 +65,12 @@ class FakeClient:
 class MainLogicTests(unittest.TestCase):
     def setUp(self):
         self.titles_config = configparser.ConfigParser()
-        self.app_config = Application(default_download_dir="/downloads", default_meta="WEB")
-        self.logger = SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None)
+        self.app_config = Application(
+            default_download_dir="/downloads", default_meta="WEB"
+        )
+        self.logger = SimpleNamespace(
+            info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None
+        )
 
     @patch("toloka2MediaServer.main_logic.add")
     def test_add_release_by_url_uses_custom_code_name_and_path(self, mock_add):
@@ -135,7 +139,9 @@ class MainLogicTests(unittest.TestCase):
 
     @patch("toloka2MediaServer.main_logic.update_release")
     def test_update_release_by_name_calls_end_session(self, mock_update_release):
-        mock_update_release.return_value = OperationResult(response_code=ResponseCode.SUCCESS)
+        mock_update_release.return_value = OperationResult(
+            response_code=ResponseCode.SUCCESS
+        )
         config = SimpleNamespace(
             client=FakeClient(),
             operation_result=OperationResult(),
@@ -222,7 +228,30 @@ class MainLogicTests(unittest.TestCase):
 
         result = search_torrents(config)
 
-        self.assertEqual(result.response, [torrent])
+        self.assertIsInstance(result.response, dict)
+        self.assertEqual(result.response["data"], [torrent])
+        self.assertFalse(result.response["retry_suggested"])
+
+    def test_search_torrents_on_error_returns_retry_dict(self):
+        def failing_search(_):
+            raise ConnectionError("transient")
+
+        config = SimpleNamespace(
+            args="Show",
+            toloka=FakeToloka(None),
+            operation_result=OperationResult(),
+        )
+        config.toloka.search = failing_search
+
+        result = search_torrents(config)
+
+        self.assertIsInstance(result.response, dict)
+        self.assertEqual(result.response["data"], [])
+        self.assertTrue(result.response["retry_suggested"])
+        self.assertEqual(
+            result.response["message"],
+            "Search is still initializing. Please try again in a moment.",
+        )
 
     def test_get_torrent_happy_path(self):
         torrent = FakeTorrent("folder/Show Name (2024)")

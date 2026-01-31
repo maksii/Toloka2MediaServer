@@ -53,7 +53,7 @@ def process_torrent(config, title, torrent, new=False):
         is_paused=True,
         download_dir=title.download_dir,
     )
-    
+
     if add_torrent_response is None:
         message = f"Torrent already exists: {torrent.name}"
         config.operation_result.operation_logs.append(message)
@@ -62,11 +62,11 @@ def process_torrent(config, title, torrent, new=False):
         return config.operation_result
 
     time.sleep(config.application_config.client_wait_time)
-    
+
     if config.application_config.client == "qbittorrent":
         # Use the hash returned from add_torrent (calculated from torrent file)
         title.hash = add_torrent_response
-        
+
         # Get torrent info using the known hash
         filtered_torrents = config.client.get_torrent_info(
             status_filter="paused",
@@ -82,7 +82,7 @@ def process_torrent(config, title, torrent, new=False):
             config.logger.error(message)
             config.operation_result.response_code = ResponseCode.FAILURE
             return config.operation_result
-            
+
         added_torrent = filtered_torrents[0]
         get_filelist = config.client.get_files(title.hash)
 
@@ -164,9 +164,9 @@ def process_torrent(config, title, torrent, new=False):
 
     # Store episode range for partial seasons
     episode_range = []
-    
+
     for file in get_filelist:
-        ext_name = file.name.split('.')[-1]
+        ext_name = file.name.split(".")[-1]
 
         file_name = _get_file_name_from_path(file.name)
         source_episode = get_numbers(file_name)[title.episode_index]
@@ -197,7 +197,7 @@ def process_torrent(config, title, torrent, new=False):
     if title.is_partial_season:
         min_ep = min(episode_range)
         max_ep = max(episode_range)
-        
+
         # Handle single episode case - don't use range notation for single episode
         if min_ep == max_ep:
             folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)} {title.meta}[{title.release_group}]"
@@ -233,7 +233,7 @@ def process_torrent(config, title, torrent, new=False):
                 torrent_hash=title.hash,
                 on_complete=lambda ok, msg: config.logger.info(
                     f"Background recheck completed for {torrent.name}: {ok}, {msg}"
-                )
+                ),
             )
             if message:
                 config.operation_result.operation_logs.append(message)
@@ -241,7 +241,7 @@ def process_torrent(config, title, torrent, new=False):
                     config.logger.info(message)
                 else:
                     config.logger.error(message)
-            
+
             if not success:
                 message = f"Failed to start recheck for torrent: {torrent.name}"
                 config.operation_result.operation_logs.append(message)
@@ -268,16 +268,16 @@ def update(config, title):
         config.operation_result.operation_logs.append("Title not found")
         config.operation_result.response_code = ResponseCode.FAILURE
         return config.operation_result
-        
+
     guid = title.guid.strip('"') if title.guid else ""
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{guid}")
     config.operation_result.torrent_references.append(torrent)
-    
+
     if title.publish_date not in torrent.date:
         message = f"Date is different! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
         config.logger.info(message)
-        
+
         if not config.args.force:
             # Rename folder to base format before update
             # Handles partial seasons and transitions from partial to non-partial
@@ -297,17 +297,19 @@ def update(config, title):
                 )
 
             # Delete old torrent but keep files
-            delete_success = config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
+            delete_success = config.client.delete_torrent(
+                delete_files=False, torrent_hashes=title.hash
+            )
             if not delete_success:
                 message = f"Failed to delete old torrent: {torrent.name}"
                 config.operation_result.operation_logs.append(message)
                 config.logger.error(message)
                 config.operation_result.response_code = ResponseCode.FAILURE
                 return config.operation_result
-                
+
             # Wait a bit before adding new torrent
             time.sleep(config.application_config.client_wait_time)
-            
+
             config.operation_result = process_torrent(config, title, torrent)
     else:
         message = f"Update not required! : {torrent.name}"
@@ -316,6 +318,7 @@ def update(config, title):
         config.operation_result.response_code = ResponseCode.SUCCESS
 
     return config.operation_result
+
 
 def add(config, title, torrent):
     config.operation_result.titles_references.append(title)

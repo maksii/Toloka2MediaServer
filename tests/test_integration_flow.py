@@ -388,7 +388,9 @@ class IntegrationFlowTests(unittest.TestCase):
         result = torrent_processor.update(config, title)
 
         self.assertEqual(result.response_code, ResponseCode.SUCCESS)
-        self.assertEqual(client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01"))
+        self.assertEqual(
+            client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01")
+        )
         self.assertTrue(client.deleted)
         mock_process_torrent.assert_called_once()
 
@@ -428,7 +430,9 @@ class IntegrationFlowTests(unittest.TestCase):
         result = torrent_processor.update(config, title)
 
         self.assertEqual(result.response_code, ResponseCode.SUCCESS)
-        self.assertEqual(client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01"))
+        self.assertEqual(
+            client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01")
+        )
         self.assertTrue(client.deleted)
         mock_process_torrent.assert_called_once()
 
@@ -469,7 +473,9 @@ class IntegrationFlowTests(unittest.TestCase):
 
     @patch.object(torrent_processor, "update_config")
     @patch.object(torrent_processor.time, "sleep", return_value=None)
-    def test_add_release_with_index_correction_partial(self, _sleep, mock_update_config):
+    def test_add_release_with_index_correction_partial(
+        self, _sleep, mock_update_config
+    ):
         files = [
             FakeFile("Show/Show S01E01.mkv"),
             FakeFile("Show/Show S01E02.mkv"),
@@ -571,7 +577,10 @@ class IntegrationFlowTests(unittest.TestCase):
 
                 self.assertEqual(result.response_code, ResponseCode.SUCCESS)
                 renamed_file = client.renamed_files[0][1]
-                self.assertIn(f"{case['title'].replace(' ', '.')}.S{case['season']}E", renamed_file)
+                self.assertIn(
+                    f"{case['title'].replace(' ', '.')}.S{case['season']}E",
+                    renamed_file,
+                )
                 self.assertIn("WEBRG.mkv", renamed_file)
                 self.assertTrue(client.renamed_folders)
                 mock_update_config.assert_called()

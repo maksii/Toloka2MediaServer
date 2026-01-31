@@ -16,9 +16,7 @@ class GeneralUtilsTests(unittest.TestCase):
         self.assertEqual(general.replace_second_part_in_path("single", "new"), "single")
 
     def test_get_folder_name_from_path(self):
-        self.assertEqual(
-            general.get_folder_name_from_path("folder/file.mkv"), "folder"
-        )
+        self.assertEqual(general.get_folder_name_from_path("folder/file.mkv"), "folder")
         self.assertEqual(general.get_folder_name_from_path("file.mkv"), "")
 
     def test_extract_torrent_details(self):

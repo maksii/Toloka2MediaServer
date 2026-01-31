@@ -52,9 +52,7 @@ class FakeQbitApi:
         files = self._files.get(torrent_hash, [])
         for file in files:
             if file.name.startswith(f"{old_path}/"):
-                file.name = file.name.replace(
-                    f"{old_path}/", f"{new_path}/", 1
-                )
+                file.name = file.name.replace(f"{old_path}/", f"{new_path}/", 1)
 
     def torrents_rename(self, torrent_hash, new_torrent_name):
         self._renamed_torrents.append((torrent_hash, new_torrent_name))
@@ -91,7 +89,9 @@ class QbittorrentClientTests(unittest.TestCase):
         self.client.api_client._torrents.clear()
         self.client.api_client._torrents["hash123"] = FakeTorrent("hash123")
 
-        with patch.object(self.client, "_calculate_torrent_hash", return_value="hash123"):
+        with patch.object(
+            self.client, "_calculate_torrent_hash", return_value="hash123"
+        ):
             with patch.object(self.client, "_get_torrent") as mock_get:
                 mock_get.side_effect = [
                     None,
@@ -115,7 +115,9 @@ class QbittorrentClientTests(unittest.TestCase):
         result = self.client.rename_file(torrent_hash, "old/file.mkv", "new/file.mkv")
 
         self.assertTrue(result)
-        self.assertEqual(self.client.api_client._files[torrent_hash][0].name, "new/file.mkv")
+        self.assertEqual(
+            self.client.api_client._files[torrent_hash][0].name, "new/file.mkv"
+        )
 
     def test_rename_folder_updates_paths(self):
         torrent_hash = "hash123"
@@ -125,7 +127,9 @@ class QbittorrentClientTests(unittest.TestCase):
         result = self.client.rename_folder(torrent_hash, "old", "new")
 
         self.assertTrue(result)
-        self.assertEqual(self.client.api_client._files[torrent_hash][0].name, "new/file.mkv")
+        self.assertEqual(
+            self.client.api_client._files[torrent_hash][0].name, "new/file.mkv"
+        )
 
     def test_resume_torrent_verifies_active_state(self):
         torrent_hash = "hash123"
@@ -136,7 +140,9 @@ class QbittorrentClientTests(unittest.TestCase):
         result = self.client.resume_torrent(torrent_hash)
 
         self.assertTrue(result)
-        self.assertEqual(self.client.api_client._torrents[torrent_hash].state, "downloading")
+        self.assertEqual(
+            self.client.api_client._torrents[torrent_hash].state, "downloading"
+        )
 
 
 class TransmissionClientTests(unittest.TestCase):

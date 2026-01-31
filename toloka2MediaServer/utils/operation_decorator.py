@@ -21,7 +21,9 @@ def operation_tracker(operation_type):
             # Set operation details
             config.operation_result.operation_type = operation_type
             config.operation_result.start_time = datetime.now()
-            config.operation_result.response_code = ResponseCode.PARTIAL  # Initial state
+            config.operation_result.response_code = (
+                ResponseCode.PARTIAL
+            )  # Initial state
 
             try:
                 func(*args, **kwargs)
