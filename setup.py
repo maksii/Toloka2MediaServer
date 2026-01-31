@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="toloka2MediaServer",
-    version="0.3.8",
+    version="0.3.9",
     description="Addon to facilitate locating and adding TV series/anime torrents from Toloka/Hurtom with standardized naming for Sonarr/Plex/Jellyfin integration.",
-    url="https://github.com/CakesTwix/toloka2MediaServer",
+    url="https://github.com/maksii/toloka2MediaServer",
     packages=find_packages(),
     include_package_data=True,
     package_data={
@@ -19,6 +19,6 @@ setup(
         "transmission_rpc",
         "qbittorrent-api",
         "requests",
-        "toloka2python @ git+https://github.com/CakesTwix/toloka2python",
+        "toloka2python @ git+https://github.com/maksii/toloka2python",
     ],
 )
