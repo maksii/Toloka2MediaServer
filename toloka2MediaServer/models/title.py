@@ -15,6 +15,7 @@ class Title:
     hash: str = ""
     adjusted_episode_number: int = 0
     guid: str = ""
+    is_partial_season: bool = False
 
 
 def title_to_config(title):
@@ -39,6 +40,7 @@ def title_to_config(title):
         "hash": title.hash,
         "adjusted_episode_number": str(title.adjusted_episode_number),
         "guid": title.guid,
+        "is_partial_season": str(title.is_partial_season),
     }
 
     return config
@@ -71,4 +73,5 @@ def config_to_title(config, code_name):
         hash=section.get("hash", ""),
         adjusted_episode_number=int(section.get("adjusted_episode_number", 0)),
         guid=section.get("guid", ""),
+        is_partial_season=section.get("is_partial_season", "False").lower() == "true",
     )

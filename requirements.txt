@@ -1,4 +1,5 @@
 transmission_rpc
 qbittorrent-api
 requests
+bencodepy
 git+https://github.com/CakesTwix/toloka2python
