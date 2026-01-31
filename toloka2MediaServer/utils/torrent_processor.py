@@ -273,44 +273,47 @@ def update(config, title):
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{guid}")
     config.operation_result.torrent_references.append(torrent)
 
-    if title.publish_date not in torrent.date:
+    date_changed = title.publish_date not in torrent.date
+    if date_changed:
         message = f"Date is different! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
         config.logger.info(message)
+    elif config.args.force:
+        message = f"Force update requested: {torrent.name}"
+        config.operation_result.operation_logs.append(message)
+        config.logger.info(message)
 
-        if not config.args.force:
-            # Rename folder to base format before update
-            # Handles partial seasons and transitions from partial to non-partial
-            current_folder = get_folder_name_from_path(
-                config.client.get_files(title.hash)[0].name
+    if date_changed or config.args.force:
+        # Rename folder to base format before update
+        # Handles partial seasons and transitions from partial to non-partial
+        current_folder = get_folder_name_from_path(
+            config.client.get_files(title.hash)[0].name
+        )
+        has_episode_range = re.search(r"S\d+E\d+(-E\d+)?", current_folder) is not None
+        if current_folder and (title.is_partial_season or has_episode_range):
+            config.logger.info("Renaming folder to base format before update")
+            base_folder = f"{title.torrent_name} S{title.season_number}"
+            config.client.rename_folder(
+                torrent_hash=title.hash,
+                old_path=current_folder,
+                new_path=base_folder,
             )
-            has_episode_range = (
-                re.search(r"S\d+E\d+(-E\d+)?", current_folder) is not None
-            )
-            if current_folder and (title.is_partial_season or has_episode_range):
-                config.logger.info("Renaming folder to base format before update")
-                base_folder = f"{title.torrent_name} S{title.season_number}"
-                config.client.rename_folder(
-                    torrent_hash=title.hash,
-                    old_path=current_folder,
-                    new_path=base_folder,
-                )
 
-            # Delete old torrent but keep files
-            delete_success = config.client.delete_torrent(
-                delete_files=False, torrent_hashes=title.hash
-            )
-            if not delete_success:
-                message = f"Failed to delete old torrent: {torrent.name}"
-                config.operation_result.operation_logs.append(message)
-                config.logger.error(message)
-                config.operation_result.response_code = ResponseCode.FAILURE
-                return config.operation_result
+        # Delete old torrent but keep files
+        delete_success = config.client.delete_torrent(
+            delete_files=False, torrent_hashes=title.hash
+        )
+        if not delete_success:
+            message = f"Failed to delete old torrent: {torrent.name}"
+            config.operation_result.operation_logs.append(message)
+            config.logger.error(message)
+            config.operation_result.response_code = ResponseCode.FAILURE
+            return config.operation_result
 
-            # Wait a bit before adding new torrent
-            time.sleep(config.application_config.client_wait_time)
+        # Wait a bit before adding new torrent
+        time.sleep(config.application_config.client_wait_time)
 
-            config.operation_result = process_torrent(config, title, torrent)
+        config.operation_result = process_torrent(config, title, torrent)
     else:
         message = f"Update not required! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
