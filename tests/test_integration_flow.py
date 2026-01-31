@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from toloka2MediaServer.models.application import Application
 from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
-from toloka2MediaServer.models.title import Title
+from toloka2MediaServer.models.title import Title, config_to_title
 from toloka2MediaServer.utils import torrent_processor
 
 
@@ -619,6 +619,85 @@ class IntegrationFlowTests(unittest.TestCase):
                 self.assertIn("WEBRG.mkv", renamed_file)
                 self.assertTrue(client.renamed_folders)
                 mock_update_config.assert_called()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_then_update_saves_original_index_and_produces_same_naming(
+        self, _sleep, mock_update_config
+    ):
+        # User selects index X (full path). We must save X in titles.ini, not aligned Y.
+        # Full path: folder (Season 1) [1080p]; filename S01E02 [1080p].
+        # Numbers: 1, 1080, 01, 02, 1080 -> 0-based index 3 = "02" (E02). So X = 3.
+        full_path = "TV Show (Season 1) [1080p] [Group]/TV Show S01E02 [1080p] [Group].mkv"
+        files = [FakeFile(full_path)]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=Application(
+                client="qbittorrent",
+                client_wait_time=0,
+                enable_dot_spacing_in_file_name=True,
+            ),
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        user_index_x = 3  # 0-based: 4th number in full path = "02" (E02)
+
+        title = Title(
+            code_name="VioletEvergardenS01",
+            episode_index=user_index_x,
+            season_number="01",
+            torrent_name="TV Show",
+            download_dir="/downloads",
+            release_group="Group",
+            meta="1080p",
+        )
+
+        saved_config = {}
+
+        def capture_config(cfg, code_name):
+            saved_config["config"] = cfg
+            saved_config["code_name"] = code_name
+
+        mock_update_config.side_effect = capture_config
+
+        result = torrent_processor.add(config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        # titles.ini must store original X, not aligned Y
+        self.assertIn("config", saved_config)
+        titles_cfg = saved_config["config"]
+        code_name = saved_config["code_name"]
+        saved_episode_index = int(titles_cfg[code_name]["episode_index"])
+        self.assertEqual(
+            saved_episode_index,
+            user_index_x,
+            "titles.ini must store original user index X=%s, not aligned Y"
+            % user_index_x,
+        )
+
+        add_renamed_files = list(client.renamed_files)
+        self.assertEqual(len(add_renamed_files), 1)
+        self.assertIn("S01E02", add_renamed_files[0][1])
+
+        # Load title from saved config (as update would from titles.ini)
+        title_loaded = config_to_title(titles_cfg, code_name)
+        self.assertEqual(title_loaded.episode_index, user_index_x)
+
+        self.torrent.date = "2024-01-03"
+        client._renamed_files = []
+
+        result_update = torrent_processor.update(config, title_loaded)
+
+        self.assertEqual(result_update.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(len(client.renamed_files), 1)
+        self.assertEqual(
+            client.renamed_files[0][1],
+            add_renamed_files[0][1],
+            "Update must produce same naming as add when using saved index X",
+        )
 
 
 if __name__ == "__main__":

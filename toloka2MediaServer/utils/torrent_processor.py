@@ -102,14 +102,15 @@ def process_torrent(config, title, torrent, new=False):
 
     first_fileName = get_filelist[0].name
 
-    # Align stored episode_index to filename-only numbers using context
+    # Align to filename-only index for this run only; keep title.episode_index (X) for saving
+    effective_episode_index = title.episode_index
     full_numbers_ctx = _numbers_with_context(first_fileName, context_len=2)
     file_name = _get_file_name_from_path(first_fileName)
     file_numbers_ctx = _numbers_with_context(file_name, context_len=2)
     if 0 <= title.episode_index < len(full_numbers_ctx):
         selected_ctx = full_numbers_ctx[title.episode_index]
         if selected_ctx in file_numbers_ctx:
-            title.episode_index = file_numbers_ctx.index(selected_ctx)
+            effective_episode_index = file_numbers_ctx.index(selected_ctx)
 
     # Update + partial: normalize folder to base format so rest of logic sees consistent paths
     if not new and title.is_partial_season:
@@ -169,7 +170,7 @@ def process_torrent(config, title, torrent, new=False):
         ext_name = file.name.split(".")[-1]
 
         file_name = _get_file_name_from_path(file.name)
-        source_episode = get_numbers(file_name)[title.episode_index]
+        source_episode = get_numbers(file_name)[effective_episode_index]
         calculated_episode = str(
             int(source_episode) + title.adjusted_episode_number
         ).zfill(len(source_episode))
