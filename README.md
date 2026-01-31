@@ -1,7 +1,7 @@
-# Toloka2MediaServer [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
+# Toloka2MediaServer [![CI](https://github.com/maksii/Toloka2MediaServer/actions/workflows/ci.yml/badge.svg)](https://github.com/maksii/Toloka2MediaServer/actions/workflows/ci.yml) [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
 
 <p align="center">
-<img src="https://img.shields.io/github/languages/code-size/CakesTwix/Toloka2Tranmission?style=for-the-badge"/>
+<img src="https://img.shields.io/github/languages/code-size/maksii/Toloka2MediaServer?style=for-the-badge"/>
 <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black"/>
 <img src="https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54"/>
 <img src="https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white"/></p>
@@ -45,13 +45,13 @@ The Girl I Like Forgot Her Glasses (S1)
 ```
 
 # Вміст
- - [Огляд Інтерфейсу Користувача](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#огляд-інтерфейсу-користувача)
-   - [Інтерфейс Командного Рядка](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#інтерфейс-командного-рядка-cli) (CLI)
-   - [Огляд роботи](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#огляд-роботи)
- - [Crontab](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#crontab-every-day-at-800)
- - [Конфиги](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#конфиги)
- - [Автори](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#автори)
- - [Ліцензія](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#ліцензія)
+ - [Огляд Інтерфейсу Користувача](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#огляд-інтерфейсу-користувача)
+   - [Інтерфейс Командного Рядка](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#інтерфейс-командного-рядка-cli) (CLI)
+   - [Огляд роботи](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#огляд-роботи)
+ - [Crontab](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#crontab-every-day-at-800)
+ - [Конфиги](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#конфиги)
+ - [Автори](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#автори)
+ - [Ліцензія](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#ліцензія)
 
 ## Огляд Інтерфейсу Користувача
 
@@ -256,4 +256,3 @@ is_partial_season = False
 ## Ліцензія
 
 - [GPL-v3](https://choosealicense.com/licenses/gpl-3.0/)
-

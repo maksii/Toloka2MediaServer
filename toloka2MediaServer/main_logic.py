@@ -1,10 +1,7 @@
-from datetime import datetime
 import re
 import time
 from toloka2MediaServer.models.operation_result import (
-    OperationResult,
     OperationType,
-    ResponseCode,
 )
 from toloka2MediaServer.utils.general import extract_torrent_details
 from toloka2MediaServer.utils.operation_decorator import operation_tracker
@@ -170,7 +167,7 @@ def get_torrent(config):
         torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{config.args}")
 
         if not torrent:
-            torrent = f"No results found."
+            torrent = "No results found."
         config.operation_result.response = torrent
     except Exception as e:
         config.operation_result.response = e
@@ -201,7 +198,7 @@ def add_torrent(config):
         )
 
         if not torrent:
-            torrent = f"No results found."
+            torrent = "No results found."
         config.operation_result.response = torrent
     except Exception as e:
         config.operation_result.response = e
