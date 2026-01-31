@@ -30,9 +30,9 @@ def config_to_app(config):
     kwargs = {}
     for f in fields(Application):
         if f.name in section:
-            if f.type == int:
+            if f.type is int:
                 kwargs[f.name] = int(section[f.name])
-            elif f.type == bool:
+            elif f.type is bool:
                 kwargs[f.name] = config.getboolean("Toloka", f.name)
             else:
                 kwargs[f.name] = section[f.name]

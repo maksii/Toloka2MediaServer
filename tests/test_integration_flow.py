@@ -1,0 +1,704 @@
+import logging
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from toloka2MediaServer.models.application import Application
+from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
+from toloka2MediaServer.models.title import Title, config_to_title
+from toloka2MediaServer.utils import torrent_processor
+
+
+class FakeFile:
+    def __init__(self, name):
+        self.name = name
+
+
+class FakeTorrent:
+    def __init__(self, name, url, torrent_url, date, author="author"):
+        self.name = name
+        self.url = url
+        self.torrent_url = torrent_url
+        self.date = date
+        self.author = author
+
+
+class FakeTorrentInfo:
+    def __init__(self, torrent_hash):
+        self.hash = torrent_hash
+
+
+class FakeQbitClient:
+    def __init__(self, files):
+        self._files = files
+        self._added_hash = None
+        self._renamed_files = []
+        self._renamed_folders = []
+        self._renamed_torrents = []
+        self._resumed = []
+        self._deleted = []
+        self._recheck_calls = []
+        self._end_session_called = 0
+        self.tags = "tag"
+        self.category = "cat"
+        self.recheck_success = True
+
+    @property
+    def renamed_files(self):
+        return self._renamed_files
+
+    @property
+    def renamed_folders(self):
+        return self._renamed_folders
+
+    @property
+    def renamed_torrents(self):
+        return self._renamed_torrents
+
+    @property
+    def deleted(self):
+        return self._deleted
+
+    @property
+    def recheck_calls(self):
+        return self._recheck_calls
+
+    def add_torrent(self, torrents, category, tags, is_paused, download_dir):
+        self._added_hash = "hash123"
+        return self._added_hash
+
+    def get_torrent_info(
+        self, status_filter, category, tags, sort, reverse, torrent_hash
+    ):
+        if torrent_hash != self._added_hash:
+            return []
+        return [FakeTorrentInfo(torrent_hash)]
+
+    def get_files(self, torrent_hash):
+        return self._files
+
+    def rename_file(self, torrent_hash, old_path, new_path):
+        self._renamed_files.append((old_path, new_path))
+
+    def rename_folder(self, torrent_hash, old_path, new_path):
+        self._renamed_folders.append((old_path, new_path))
+
+    def rename_torrent(self, torrent_hash, new_torrent_name):
+        self._renamed_torrents.append(new_torrent_name)
+
+    def resume_torrent(self, torrent_hashes):
+        self._resumed.append(torrent_hashes)
+        return True
+
+    def delete_torrent(self, delete_files, torrent_hashes):
+        self._deleted.append((delete_files, torrent_hashes))
+        return True
+
+    def recheck_torrent(self, torrent_hashes):
+        self._recheck_calls.append(torrent_hashes)
+
+    def recheck_and_resume_async(self, torrent_hash, on_complete):
+        if self.recheck_success:
+            return True, "Recheck scheduled"
+        return False, "Recheck failed"
+
+    def end_session(self, torrent_hashes=None):
+        self._end_session_called += 1
+
+
+class FakeTransmissionTorrentInfo:
+    def __init__(self, hash_string, files):
+        self.hash_string = hash_string
+        self._files = files
+
+    def get_files(self):
+        return self._files
+
+
+class FakeTransmissionClient:
+    def __init__(self, files):
+        self._files = files
+        self._renamed_files = []
+        self._renamed_folders = []
+        self._renamed_torrents = []
+        self._resumed = []
+        self._rechecked = []
+        self._deleted = []
+        self.tags = "tag"
+        self.category = "cat"
+
+    @property
+    def renamed_files(self):
+        return self._renamed_files
+
+    @property
+    def renamed_folders(self):
+        return self._renamed_folders
+
+    @property
+    def renamed_torrents(self):
+        return self._renamed_torrents
+
+    @property
+    def rechecked(self):
+        return self._rechecked
+
+    def add_torrent(self, torrents, category, tags, is_paused, download_dir):
+        return "transmission-id"
+
+    def get_torrent_info(
+        self, status_filter, category, tags, sort, reverse, torrent_hash
+    ):
+        return FakeTransmissionTorrentInfo("transmission-hash", self._files)
+
+    def get_files(self, torrent_hash):
+        return self._files
+
+    def rename_file(self, torrent_hash, old_path, new_path):
+        self._renamed_files.append((old_path, new_path))
+
+    def rename_folder(self, torrent_hash, old_path, new_path):
+        self._renamed_folders.append((old_path, new_path))
+
+    def rename_torrent(self, torrent_hash, new_torrent_name):
+        self._renamed_torrents.append(new_torrent_name)
+
+    def resume_torrent(self, torrent_hashes):
+        self._resumed.append(torrent_hashes)
+        return True
+
+    def delete_torrent(self, delete_files, torrent_hashes):
+        self._deleted.append((delete_files, torrent_hashes))
+        return True
+
+    def recheck_torrent(self, torrent_hashes):
+        self._rechecked.append(torrent_hashes)
+        return True
+
+    def end_session(self, torrent_hashes=None):
+        return None
+
+
+class FakeToloka:
+    def __init__(self, torrent):
+        self.torrent = torrent
+        self.toloka_url = "https://example.com"
+
+    def get_torrent(self, url):
+        return self.torrent
+
+    def download_torrent(self, url):
+        return b"torrent-bytes"
+
+
+class IntegrationFlowTests(unittest.TestCase):
+    def setUp(self):
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger("tests")
+        self.files = [FakeFile("My Show S01/My Show S01E01.mkv")]
+        self.client = FakeQbitClient(self.files)
+        self.torrent = FakeTorrent(
+            name="My Show S01E01",
+            url="t123",
+            torrent_url="t123.torrent",
+            date="2024-01-02",
+        )
+        self.toloka = FakeToloka(self.torrent)
+        self.app_config = Application(
+            client="qbittorrent",
+            client_wait_time=0,
+            enable_dot_spacing_in_file_name=True,
+        )
+        self.args = SimpleNamespace(force=False)
+        self.config = SimpleNamespace(
+            toloka=self.toloka,
+            client=self.client,
+            application_config=self.app_config,
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_new_item_success(self, _sleep, mock_update_config):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+        )
+
+        result = torrent_processor.add(self.config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(
+            self.client.renamed_files[0][1],
+            "My Show S01/My.Show.S01E01.WEBRG.mkv",
+        )
+        self.assertEqual(
+            self.client.renamed_folders[0],
+            ("My Show S01", "My.Show.S01.WEB[RG]"),
+        )
+        self.assertIn("My.Show.S01.WEB[RG]", self.client.renamed_torrents)
+        mock_update_config.assert_called_once()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_existing_item_success(self, _sleep, mock_update_config):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-01",
+            hash="oldhash",
+            guid="t123",
+        )
+
+        result = torrent_processor.update(self.config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertTrue(self.client.deleted)
+        mock_update_config.assert_called_once()
+
+    def test_update_existing_item_same_date_no_update(self):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-02",
+            hash="oldhash",
+            guid="t123",
+        )
+
+        result = torrent_processor.update(self.config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertFalse(self.client.deleted)
+        self.assertTrue(
+            any("Update not required" in log for log in result.operation_logs)
+        )
+
+    @patch.object(torrent_processor, "process_torrent")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_existing_item_force_update(self, _sleep, mock_process_torrent):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-02",
+            hash="oldhash",
+            guid="t123",
+        )
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=self.client,
+            application_config=self.app_config,
+            args=SimpleNamespace(force=True),
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        config.operation_result.response_code = ResponseCode.SUCCESS
+        mock_process_torrent.return_value = config.operation_result
+
+        result = torrent_processor.update(config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertTrue(self.client.deleted)
+        self.assertTrue(
+            any("Force update requested" in log for log in result.operation_logs)
+        )
+        mock_process_torrent.assert_called_once()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_existing_item_recheck_failure(self, _sleep, mock_update_config):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-01",
+            hash="oldhash",
+            guid="t123",
+        )
+        self.client.recheck_success = False
+
+        result = torrent_processor.update(self.config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.FAILURE)
+        self.assertTrue(
+            any("Failed to start recheck" in log for log in result.operation_logs)
+        )
+        mock_update_config.assert_not_called()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_new_item_transmission(self, _sleep, mock_update_config):
+        files = [FakeFile("Show S01/Show S01E01.mkv")]
+        client = FakeTransmissionClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=Application(
+                client="transmission",
+                client_wait_time=0,
+                enable_dot_spacing_in_file_name=False,
+            ),
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        title = Title(
+            code_name="Show",
+            episode_index=1,
+            season_number="01",
+            torrent_name="Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+        )
+
+        result = torrent_processor.add(config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(
+            client.renamed_files[0][1],
+            "Show S01E01 WEB-RG.mkv",
+        )
+        self.assertIn("Show S01 WEB[RG]", client.renamed_torrents)
+        mock_update_config.assert_called_once()
+
+    @patch.object(torrent_processor, "process_torrent")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_partial_release_downloads_on_date_change(
+        self, _sleep, mock_process_torrent
+    ):
+        files = [FakeFile("Show S01E01-E03 WEB[RG]/Show S01E01.mkv")]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=self.app_config,
+            args=SimpleNamespace(force=False),
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        title = Title(
+            code_name="Show",
+            episode_index=1,
+            season_number="01",
+            torrent_name="Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-01",
+            hash="oldhash",
+            guid="t123",
+            is_partial_season=True,
+        )
+
+        mock_process_torrent.return_value = OperationResult(
+            response_code=ResponseCode.SUCCESS
+        )
+
+        result = torrent_processor.update(config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(
+            client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01")
+        )
+        self.assertTrue(client.deleted)
+        mock_process_torrent.assert_called_once()
+
+    @patch.object(torrent_processor, "process_torrent")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_partial_to_full_release_downloads_on_date_change(
+        self, _sleep, mock_process_torrent
+    ):
+        files = [FakeFile("Show S01E01-E03 WEB[RG]/Show S01E01.mkv")]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=self.app_config,
+            args=SimpleNamespace(force=False),
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        title = Title(
+            code_name="Show",
+            episode_index=1,
+            season_number="01",
+            torrent_name="Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-01",
+            hash="oldhash",
+            guid="t123",
+            is_partial_season=False,
+        )
+
+        mock_process_torrent.return_value = OperationResult(
+            response_code=ResponseCode.SUCCESS
+        )
+
+        result = torrent_processor.update(config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(
+            client.renamed_folders[0], ("Show S01E01-E03 WEB[RG]", "Show S01")
+        )
+        self.assertTrue(client.deleted)
+        mock_process_torrent.assert_called_once()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_release_with_index_correction_full(self, _sleep, mock_update_config):
+        files = [FakeFile("Show S01/Show S01E01.mkv")]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=Application(
+                client="qbittorrent",
+                client_wait_time=0,
+                enable_dot_spacing_in_file_name=True,
+            ),
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        title = Title(
+            code_name="Show",
+            episode_index=1,
+            season_number="01",
+            torrent_name="Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            adjusted_episode_number=1,
+        )
+
+        result = torrent_processor.add(config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(client.renamed_files[0][1], "Show S01/Show.S01E02.WEBRG.mkv")
+        self.assertIn("Show.S01.WEB[RG]", client.renamed_torrents)
+        mock_update_config.assert_called_once()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_release_with_index_correction_partial(
+        self, _sleep, mock_update_config
+    ):
+        files = [
+            FakeFile("Show/Show S01E01.mkv"),
+            FakeFile("Show/Show S01E02.mkv"),
+        ]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=Application(
+                client="qbittorrent",
+                client_wait_time=0,
+                enable_dot_spacing_in_file_name=True,
+            ),
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        title = Title(
+            code_name="Show",
+            episode_index=1,
+            season_number="01",
+            torrent_name="Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            adjusted_episode_number=1,
+            is_partial_season=True,
+        )
+
+        result = torrent_processor.add(config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(client.renamed_files[0][1], "Show/Show.S01E02.WEBRG.mkv")
+        self.assertIn("Show.S01E02-E03.WEB[RG]", client.renamed_torrents)
+        mock_update_config.assert_called_once()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_release_renames_realistic_names(self, _sleep, mock_update_config):
+        cases = [
+            {
+                "file": "Alt Title (Series) [Group][BDRip 1080p]/Series 01.mkv",
+                "title": "Series",
+                "season": "01",
+                "episode_index": 0,
+            },
+            {
+                "file": "City Spirits S01 2024 WEB-DL 1080p/City Spirits S01E09 2024 WEB-DL 1080p.mkv",
+                "title": "City Spirits",
+                "season": "01",
+                "episode_index": 1,
+            },
+            {
+                "file": "[Studio] Welcome Traveler/[Studio] Welcome Traveler.S01E05.mkv",
+                "title": "Welcome Traveler",
+                "season": "01",
+                "episode_index": 1,
+            },
+            {
+                "file": "Hero Journey (Season 2) [1080p] [Group]/Hero Journey S02E01 [1080p] [Group].mkv",
+                "title": "Hero Journey",
+                "season": "02",
+                "episode_index": 1,
+            },
+            {
+                "file": "Space Pilot Remaster [BDRip 1080p]/Space Pilot Remaster - 00 (BDRip x264 1080p AAC) Dub.mkv",
+                "title": "Space Pilot Remaster",
+                "season": "01",
+                "episode_index": 0,
+            },
+        ]
+        for case in cases:
+            with self.subTest(case=case["file"]):
+                files = [FakeFile(case["file"])]
+                client = FakeQbitClient(files)
+                config = SimpleNamespace(
+                    toloka=self.toloka,
+                    client=client,
+                    application_config=Application(
+                        client="qbittorrent",
+                        client_wait_time=0,
+                        enable_dot_spacing_in_file_name=True,
+                    ),
+                    args=self.args,
+                    logger=self.logger,
+                    operation_result=OperationResult(),
+                )
+                title = Title(
+                    code_name="Show",
+                    episode_index=case["episode_index"],
+                    season_number=case["season"],
+                    torrent_name=case["title"],
+                    download_dir="/downloads",
+                    release_group="RG",
+                    meta="WEB",
+                )
+
+                result = torrent_processor.add(config, title, self.torrent)
+
+                self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+                renamed_file = client.renamed_files[0][1]
+                self.assertIn(
+                    f"{case['title'].replace(' ', '.')}.S{case['season']}E",
+                    renamed_file,
+                )
+                self.assertIn("WEBRG.mkv", renamed_file)
+                self.assertTrue(client.renamed_folders)
+                mock_update_config.assert_called()
+
+    @patch.object(torrent_processor, "update_config")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_add_then_update_saves_original_index_and_produces_same_naming(
+        self, _sleep, mock_update_config
+    ):
+        # User selects index X (full path). We must save X in titles.ini, not aligned Y.
+        # Full path: folder (Season 1) [1080p]; filename S01E02 [1080p].
+        # Numbers: 1, 1080, 01, 02, 1080 -> 0-based index 3 = "02" (E02). So X = 3.
+        full_path = "TV Show (Season 1) [1080p] [Group]/TV Show S01E02 [1080p] [Group].mkv"
+        files = [FakeFile(full_path)]
+        client = FakeQbitClient(files)
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=client,
+            application_config=Application(
+                client="qbittorrent",
+                client_wait_time=0,
+                enable_dot_spacing_in_file_name=True,
+            ),
+            args=self.args,
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        user_index_x = 3  # 0-based: 4th number in full path = "02" (E02)
+
+        title = Title(
+            code_name="VioletEvergardenS01",
+            episode_index=user_index_x,
+            season_number="01",
+            torrent_name="TV Show",
+            download_dir="/downloads",
+            release_group="Group",
+            meta="1080p",
+        )
+
+        saved_config = {}
+
+        def capture_config(cfg, code_name):
+            saved_config["config"] = cfg
+            saved_config["code_name"] = code_name
+
+        mock_update_config.side_effect = capture_config
+
+        result = torrent_processor.add(config, title, self.torrent)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        # titles.ini must store original X, not aligned Y
+        self.assertIn("config", saved_config)
+        titles_cfg = saved_config["config"]
+        code_name = saved_config["code_name"]
+        saved_episode_index = int(titles_cfg[code_name]["episode_index"])
+        self.assertEqual(
+            saved_episode_index,
+            user_index_x,
+            "titles.ini must store original user index X=%s, not aligned Y"
+            % user_index_x,
+        )
+
+        add_renamed_files = list(client.renamed_files)
+        self.assertEqual(len(add_renamed_files), 1)
+        self.assertIn("S01E02", add_renamed_files[0][1])
+
+        # Load title from saved config (as update would from titles.ini)
+        title_loaded = config_to_title(titles_cfg, code_name)
+        self.assertEqual(title_loaded.episode_index, user_index_x)
+
+        self.torrent.date = "2024-01-03"
+        client._renamed_files = []
+
+        result_update = torrent_processor.update(config, title_loaded)
+
+        self.assertEqual(result_update.response_code, ResponseCode.SUCCESS)
+        self.assertEqual(len(client.renamed_files), 1)
+        self.assertEqual(
+            client.renamed_files[0][1],
+            add_renamed_files[0][1],
+            "Update must produce same naming as add when using saved index X",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

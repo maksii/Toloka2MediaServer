@@ -3,7 +3,6 @@ import os
 
 
 def setup_logging(config_level_name, log_path=None):
-
     if log_path is None:
         log_path = os.path.join(os.getcwd(), "data", "app.log")
 

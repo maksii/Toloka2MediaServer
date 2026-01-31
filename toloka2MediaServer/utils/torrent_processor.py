@@ -3,11 +3,9 @@
 import re
 import time
 
-from toloka2MediaServer.clients.bittorrent_client import BittorrentClient
-
 from toloka2MediaServer.config_parser import update_config
-from toloka2MediaServer.models.operation_result import OperationResult, ResponseCode
-from toloka2MediaServer.models.title import Title, title_to_config
+from toloka2MediaServer.models.operation_result import ResponseCode
+from toloka2MediaServer.models.title import title_to_config
 from toloka2MediaServer.utils.general import (
     get_numbers,
     replace_second_part_in_path,
@@ -55,7 +53,7 @@ def process_torrent(config, title, torrent, new=False):
         is_paused=True,
         download_dir=title.download_dir,
     )
-    
+
     if add_torrent_response is None:
         message = f"Torrent already exists: {torrent.name}"
         config.operation_result.operation_logs.append(message)
@@ -64,11 +62,11 @@ def process_torrent(config, title, torrent, new=False):
         return config.operation_result
 
     time.sleep(config.application_config.client_wait_time)
-    
+
     if config.application_config.client == "qbittorrent":
         # Use the hash returned from add_torrent (calculated from torrent file)
         title.hash = add_torrent_response
-        
+
         # Get torrent info using the known hash
         filtered_torrents = config.client.get_torrent_info(
             status_filter="paused",
@@ -84,7 +82,7 @@ def process_torrent(config, title, torrent, new=False):
             config.logger.error(message)
             config.operation_result.response_code = ResponseCode.FAILURE
             return config.operation_result
-            
+
         added_torrent = filtered_torrents[0]
         get_filelist = config.client.get_files(title.hash)
 
@@ -104,14 +102,15 @@ def process_torrent(config, title, torrent, new=False):
 
     first_fileName = get_filelist[0].name
 
-    # Align stored episode_index to filename-only numbers using context
+    # Align to filename-only index for this run only; keep title.episode_index (X) for saving
+    effective_episode_index = title.episode_index
     full_numbers_ctx = _numbers_with_context(first_fileName, context_len=2)
     file_name = _get_file_name_from_path(first_fileName)
     file_numbers_ctx = _numbers_with_context(file_name, context_len=2)
     if 0 <= title.episode_index < len(full_numbers_ctx):
         selected_ctx = full_numbers_ctx[title.episode_index]
         if selected_ctx in file_numbers_ctx:
-            title.episode_index = file_numbers_ctx.index(selected_ctx)
+            effective_episode_index = file_numbers_ctx.index(selected_ctx)
 
     # Update + partial: normalize folder to base format so rest of logic sees consistent paths
     if not new and title.is_partial_season:
@@ -166,12 +165,12 @@ def process_torrent(config, title, torrent, new=False):
 
     # Store episode range for partial seasons
     episode_range = []
-    
+
     for file in get_filelist:
-        ext_name = file.name.split('.')[-1]
+        ext_name = file.name.split(".")[-1]
 
         file_name = _get_file_name_from_path(file.name)
-        source_episode = get_numbers(file_name)[title.episode_index]
+        source_episode = get_numbers(file_name)[effective_episode_index]
         calculated_episode = str(
             int(source_episode) + title.adjusted_episode_number
         ).zfill(len(source_episode))
@@ -199,7 +198,7 @@ def process_torrent(config, title, torrent, new=False):
     if title.is_partial_season:
         min_ep = min(episode_range)
         max_ep = max(episode_range)
-        
+
         # Handle single episode case - don't use range notation for single episode
         if min_ep == max_ep:
             folderName = f"{title.torrent_name} S{title.season_number}E{str(min_ep).zfill(2)} {title.meta}[{title.release_group}]"
@@ -235,7 +234,7 @@ def process_torrent(config, title, torrent, new=False):
                 torrent_hash=title.hash,
                 on_complete=lambda ok, msg: config.logger.info(
                     f"Background recheck completed for {torrent.name}: {ok}, {msg}"
-                )
+                ),
             )
             if message:
                 config.operation_result.operation_logs.append(message)
@@ -243,7 +242,7 @@ def process_torrent(config, title, torrent, new=False):
                     config.logger.info(message)
                 else:
                     config.logger.error(message)
-            
+
             if not success:
                 message = f"Failed to start recheck for torrent: {torrent.name}"
                 config.operation_result.operation_logs.append(message)
@@ -266,51 +265,56 @@ def process_torrent(config, title, torrent, new=False):
 
 def update(config, title):
     config.operation_result.titles_references.append(title)
-    if title == None:
+    if title is None:
         config.operation_result.operation_logs.append("Title not found")
         config.operation_result.response_code = ResponseCode.FAILURE
         return config.operation_result
-        
+
     guid = title.guid.strip('"') if title.guid else ""
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{guid}")
     config.operation_result.torrent_references.append(torrent)
-    
-    if title.publish_date not in torrent.date:
+
+    date_changed = title.publish_date not in torrent.date
+    if date_changed:
         message = f"Date is different! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
         config.logger.info(message)
-        
-        if not config.args.force:
-            # Rename folder to base format before update
-            # Handles partial seasons and transitions from partial to non-partial
-            current_folder = get_folder_name_from_path(
-                config.client.get_files(title.hash)[0].name
-            )
-            has_episode_range = (
-                re.search(r"S\d+E\d+(-E\d+)?", current_folder) is not None
-            )
-            if current_folder and (title.is_partial_season or has_episode_range):
-                config.logger.info("Renaming folder to base format before update")
-                base_folder = f"{title.torrent_name} S{title.season_number}"
-                config.client.rename_folder(
-                    torrent_hash=title.hash,
-                    old_path=current_folder,
-                    new_path=base_folder,
-                )
+    elif config.args.force:
+        message = f"Force update requested: {torrent.name}"
+        config.operation_result.operation_logs.append(message)
+        config.logger.info(message)
 
-            # Delete old torrent but keep files
-            delete_success = config.client.delete_torrent(delete_files=False, torrent_hashes=title.hash)
-            if not delete_success:
-                message = f"Failed to delete old torrent: {torrent.name}"
-                config.operation_result.operation_logs.append(message)
-                config.logger.error(message)
-                config.operation_result.response_code = ResponseCode.FAILURE
-                return config.operation_result
-                
-            # Wait a bit before adding new torrent
-            time.sleep(config.application_config.client_wait_time)
-            
-            config.operation_result = process_torrent(config, title, torrent)
+    if date_changed or config.args.force:
+        # Rename folder to base format before update
+        # Handles partial seasons and transitions from partial to non-partial
+        current_folder = get_folder_name_from_path(
+            config.client.get_files(title.hash)[0].name
+        )
+        has_episode_range = re.search(r"S\d+E\d+(-E\d+)?", current_folder) is not None
+        if current_folder and (title.is_partial_season or has_episode_range):
+            config.logger.info("Renaming folder to base format before update")
+            base_folder = f"{title.torrent_name} S{title.season_number}"
+            config.client.rename_folder(
+                torrent_hash=title.hash,
+                old_path=current_folder,
+                new_path=base_folder,
+            )
+
+        # Delete old torrent but keep files
+        delete_success = config.client.delete_torrent(
+            delete_files=False, torrent_hashes=title.hash
+        )
+        if not delete_success:
+            message = f"Failed to delete old torrent: {torrent.name}"
+            config.operation_result.operation_logs.append(message)
+            config.logger.error(message)
+            config.operation_result.response_code = ResponseCode.FAILURE
+            return config.operation_result
+
+        # Wait a bit before adding new torrent
+        time.sleep(config.application_config.client_wait_time)
+
+        config.operation_result = process_torrent(config, title, torrent)
     else:
         message = f"Update not required! : {torrent.name}"
         config.operation_result.operation_logs.append(message)
@@ -318,6 +322,7 @@ def update(config, title):
         config.operation_result.response_code = ResponseCode.SUCCESS
 
     return config.operation_result
+
 
 def add(config, title, torrent):
     config.operation_result.titles_references.append(title)

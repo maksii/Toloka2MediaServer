@@ -26,7 +26,7 @@ def get_toloka_client(application_config):
     try:
         # Attempt to create a Toloka client with the provided username and password
         return Toloka(application_config.username, application_config.password)
-    except Exception as e:
+    except Exception:
         # Log the exception or handle it as needed
         return None
 

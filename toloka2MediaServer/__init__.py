@@ -1,1 +1,3 @@
-# This is an empty __init__.py
+from toloka2MediaServer.version import __version__
+
+__all__ = ["__version__"]

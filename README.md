@@ -1,7 +1,7 @@
-# Toloka2MediaServer [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
+# Toloka2MediaServer [![CI](https://github.com/maksii/Toloka2MediaServer/actions/workflows/ci.yml/badge.svg)](https://github.com/maksii/Toloka2MediaServer/actions/workflows/ci.yml) [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
 
 <p align="center">
-<img src="https://img.shields.io/github/languages/code-size/CakesTwix/Toloka2Tranmission?style=for-the-badge"/>
+<img src="https://img.shields.io/github/languages/code-size/maksii/Toloka2MediaServer?style=for-the-badge"/>
 <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black"/>
 <img src="https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54"/>
 <img src="https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white"/></p>
@@ -9,13 +9,63 @@
 ## English Section
 The primary goal of this project is to address naming issues for Ukrainian localization studios that create regional naming conventions for shows/anime. Additionally, Toloka follows the rule that ongoing series/anime should be in a single release. As a result of these actions, none of the modern *arr suites or media servers are capable of parsing files and automating the download process effectively.
 
-This project is specifically tailored to use the Toloka torrent tracker and a custom-made [toloka2python by CakesTwix](https://github.com/CakesTwix/toloka2python) library to establish connections, find torrents, and gather additional metadata. Adapting it to work with other trackers may require some effort on your part. Support for Jackett/Prowlarr is currently not planned as it would necessitate adjustments in their Toloka implementation.
+This project is specifically tailored to use the Toloka torrent tracker and the [toloka2python](https://github.com/maksii/toloka2python) library to establish connections, find torrents, and gather additional metadata. The original project by CakesTwix appears abandoned as he moved to codeberg with no recent updates; this project uses the maintained [maksii/toloka2python](https://github.com/maksii/toloka2python) fork. 
 
 The scripts in this project make direct API calls to the torrent clients like Transmission and qBittorrent to adjust the torrent name, folder name, and file name according to the following naming convention:
 - Torrent/Folder: `SeriesName Season [Quality] [Language] [Subs] [ReleaseGroup]`
 - File: `SeriesName SeasonEpisode [Quality] [Language] [Subs]-ReleaseGroup.extension`
 
 Any future documentation will be provided in Ukrainian. Please use a translator if needed or create new issues if you require further assistance.
+
+## Installation
+
+**Prerequisites**
+
+- **Python 3.11+**
+- A [Toloka](https://toloka.to) account
+- **qBittorrent** or **Transmission** (configured and running, Transmission not tested)
+
+**Steps**
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/maksii/Toloka2MediaServer.git
+   cd Toloka2MediaServer
+   ```
+
+2. (Recommended) Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   # Linux/macOS:
+   source .venv/bin/activate
+   # Windows:
+   .venv\Scripts\activate
+   ```
+
+3. Install dependencies and the package:
+   ```bash
+   pip install -r requirements.txt
+   pip install -e .
+   ```
+   The `toloka2python` library is installed from GitHub as listed in `requirements.txt`. After this, the `toloka2MediaServer` command is available (or use `python -m toloka2MediaServer`).
+
+4. Create the config directory and add your config files:
+   ```bash
+   mkdir data
+   ```
+   Add `data/app.ini` (Toloka, torrent client, and app settings) and optionally `data/titles.ini` (see [Конфиги](#конфиги) for examples).
+
+5. Run the application:
+   ```bash
+   toloka2MediaServer --help
+   # or
+   python -m toloka2MediaServer --help
+   ```
+
+## Authors
+
+- **[@CakesTwix](https://github.com/CakesTwix)** — original author
+- **[@maksii](https://github.com/maksii)** — current maintainer
 
 ## Contributing
 
@@ -25,11 +75,9 @@ If you'd like to contribute, please fork the repository and make changes as you'
 
 ## UA Section
 Консольна утиліта для докачування нових серій аніме з Toloka.
-Для скачування торрент-файлів використовується власна бібліотека toloka2python!
+Для скачування торрент-файлів використовується бібліотека [toloka2python](https://github.com/maksii/toloka2python).
 
-> У мене на даний момент немає бажання писати під інші торрент-трекери або щось крім аніме. Я написав суто для себе і роздав вихідний код, щоб ви могли самостійно змінити код і поширювати його далі! Слався Open Source!
 
-Чому я зробив цей скрипт? Хочу дивитися онгоінги і не думати над постійним перейменуванням для свого медіа-сервера Jellyfin, оскільки у кожного свій "стандарт" і тільки одиниці дотримуються стандарту "S01E01", який підтримує мій медіа-сервер.
 Наразі можна качати торренти, де одна директорія (Один сезон), в якому знаходяться серії
 
 ```
@@ -44,14 +92,15 @@ The Girl I Like Forgot Her Glasses (S1)
 └── Episode S1E08.mkv
 ```
 
-# Вміст
- - [Огляд Інтерфейсу Користувача](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#огляд-інтерфейсу-користувача)
-   - [Інтерфейс Командного Рядка](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#інтерфейс-командного-рядка-cli) (CLI)
-   - [Огляд роботи](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#огляд-роботи)
- - [Crontab](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#crontab-every-day-at-800)
- - [Конфиги](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#конфиги)
- - [Автори](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#автори)
- - [Ліцензія](https://github.com/CakesTwix/Toloka2MediaServer?tab=readme-ov-file#ліцензія)
+## Вміст
+- [Встановлення](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#installation)
+- [Огляд Інтерфейсу Користувача](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#огляд-інтерфейсу-користувача)
+  - [Інтерфейс Командного Рядка](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#інтерфейс-командного-рядка-cli) (CLI)
+  - [Огляд роботи](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#огляд-роботи)
+- [Crontab](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#crontab-every-day-at-800)
+- [Конфиги](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#конфиги)
+- [Автори](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#автори)
+- [Ліцензія](https://github.com/maksii/Toloka2MediaServer?tab=readme-ov-file#ліцензія)
 
 ## Огляд Інтерфейсу Користувача
 
@@ -237,7 +286,7 @@ is_partial_season = False
 | publish_date            | 2024-05-23                                          | 2024-05-21                                     | Системне значення для визначення оновлень торренту                   |
 | release_group          | InariDuB                                            | FanVoxUA                                       | Реліз група або автор роздачі                                       |
 | meta                   | [WEBRip-1080p][UK+JA][Ukr Sub]                     | [WEBRip-1080p][UK][Ukr Sub]                     | Додаткові метадані, які будуть додані у назву                         |
-| hash                   | 97e...0885          | 12      | Системне значення - ID торрент файлу для майбутнього пошуку           |
+| hash                   | 97e...0885          | 8bc...a62 | Системне значення - ID торрент файлу для майбутнього пошуку           |
 | adjusted_episode_number | -8                                             | 0                                              | Коригування номера епізоду сезону для абсолютного або азіатського неймінгу |
 | guid                   | t678205                                           | t675888                                      | Системне значення для ідентифікації конкретного аніме у списку        |
 | is_partial_season      | False                                             | False                                        | Чи є реліз частковим сезоном (не всі епізоди)                        |
@@ -246,14 +295,11 @@ is_partial_season = False
 
 ## Автори
 
-- [@CakesTwix](https://www.github.com/CakesTwix) - Автор проекту та розробник
-- [@maksii](https://github.com/maksii) - Розробник
+- [@CakesTwix](https://github.com/CakesTwix) — оригінальний автор проекту
+- [@maksii](https://github.com/maksii) — поточний підтримник (maintainer)
 
-<a href="https://www.buymeacoffee.com/cakestwix"><img width="150" src="https://img.buymeacoffee.com/button-api/?text=Buy me a tea&emoji=🍵&slug=cakestwix&button_colour=FF5F5F&font_colour=ffffff&font_family=Poppins&outline_colour=000000&coffee_colour=FFDD00" /></a>
-</p>
 
 
 ## Ліцензія
 
 - [GPL-v3](https://choosealicense.com/licenses/gpl-3.0/)
-

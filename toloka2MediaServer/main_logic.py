@@ -1,10 +1,7 @@
-from datetime import datetime
 import re
 import time
 from toloka2MediaServer.models.operation_result import (
-    OperationResult,
     OperationType,
-    ResponseCode,
 )
 from toloka2MediaServer.utils.general import extract_torrent_details
 from toloka2MediaServer.utils.operation_decorator import operation_tracker
@@ -22,14 +19,14 @@ def add_release_by_url(config):
     proposed_guid = f"t{match.group(1)}" if match else None
     torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{proposed_guid}")
     suggested_name, suggested_codename = extract_torrent_details(torrent.name)
-    
+
     # Handle code name assignment with conflict resolution
     base_code_name = None
-    if hasattr(config.args, 'code_name'):
-        base_code_name = getattr(config.args, 'code_name', None)
+    if hasattr(config.args, "code_name"):
+        base_code_name = getattr(config.args, "code_name", None)
         if base_code_name:
             config.logger.debug(f"Using provided code_name: {base_code_name}")
-    
+
     if not base_code_name:
         base_code_name = suggested_codename
         config.logger.debug(f"Using suggested code_name: {base_code_name}")
@@ -44,14 +41,16 @@ def add_release_by_url(config):
         title.code_name = base_code_name
 
     # Set partial season flag if provided
-    title.is_partial_season = bool(getattr(config.args, 'partial', False))
+    title.is_partial_season = bool(getattr(config.args, "partial", False))
     if title.is_partial_season:
-        config.logger.info(f"Processing as partial season release for {title.code_name}")
+        config.logger.info(
+            f"Processing as partial season release for {title.code_name}"
+        )
 
     # Collect additional data
     title.season_number = season_number.zfill(2)
     default_download_dir = config.application_config.default_download_dir
-    if (config.args.path):
+    if config.args.path:
         title.download_dir = config.args.path
     else:
         title.download_dir = default_download_dir
@@ -61,7 +60,7 @@ def add_release_by_url(config):
     default_meta = config.application_config.default_meta
     title.meta = getattr(config.args, "meta", None) or default_meta
     result = add(config, title, torrent)
-    
+
     # Preserve the response code from the add operation
     config.operation_result.response_code = result.response_code
     return config.operation_result
@@ -150,16 +149,25 @@ def update_release(config):
     return config.operation_result
 
 
+# JSON-serializable response for transient/initialization errors (e.g. cookie retry, HTTP error).
+SEARCH_RETRY_RESPONSE = {
+    "data": [],
+    "retry_suggested": True,
+    "message": "Search is still initializing. Please try again in a moment.",
+}
+
+
 @operation_tracker(OperationType.SEARCH_RELEASES)
 def search_torrents(config):
     try:
         torrent = config.toloka.search(config.args)
-
-        if not torrent:
-            torrent = f"No results found. {config.args}"
-        config.operation_result.response = torrent
-    except Exception as e:
-        config.operation_result.response = e
+        data = list(torrent) if torrent else []
+        config.operation_result.response = {
+            "data": data,
+            "retry_suggested": False,
+        }
+    except Exception:
+        config.operation_result.response = SEARCH_RETRY_RESPONSE.copy()
 
     return config.operation_result
 
@@ -170,7 +178,7 @@ def get_torrent(config):
         torrent = config.toloka.get_torrent(f"{config.toloka.toloka_url}/{config.args}")
 
         if not torrent:
-            torrent = f"No results found."
+            torrent = "No results found."
         config.operation_result.response = torrent
     except Exception as e:
         config.operation_result.response = e
@@ -201,7 +209,7 @@ def add_torrent(config):
         )
 
         if not torrent:
-            torrent = f"No results found."
+            torrent = "No results found."
         config.operation_result.response = torrent
     except Exception as e:
         config.operation_result.response = e
