@@ -290,6 +290,41 @@ class IntegrationFlowTests(unittest.TestCase):
             any("Update not required" in log for log in result.operation_logs)
         )
 
+    @patch.object(torrent_processor, "process_torrent")
+    @patch.object(torrent_processor.time, "sleep", return_value=None)
+    def test_update_existing_item_force_update(self, _sleep, mock_process_torrent):
+        title = Title(
+            code_name="MyShow",
+            episode_index=0,
+            season_number="01",
+            torrent_name="My Show",
+            download_dir="/downloads",
+            release_group="RG",
+            meta="WEB",
+            publish_date="2024-01-02",
+            hash="oldhash",
+            guid="t123",
+        )
+        config = SimpleNamespace(
+            toloka=self.toloka,
+            client=self.client,
+            application_config=self.app_config,
+            args=SimpleNamespace(force=True),
+            logger=self.logger,
+            operation_result=OperationResult(),
+        )
+        config.operation_result.response_code = ResponseCode.SUCCESS
+        mock_process_torrent.return_value = config.operation_result
+
+        result = torrent_processor.update(config, title)
+
+        self.assertEqual(result.response_code, ResponseCode.SUCCESS)
+        self.assertTrue(self.client.deleted)
+        self.assertTrue(
+            any("Force update requested" in log for log in result.operation_logs)
+        )
+        mock_process_torrent.assert_called_once()
+
     @patch.object(torrent_processor, "update_config")
     @patch.object(torrent_processor.time, "sleep", return_value=None)
     def test_update_existing_item_recheck_failure(self, _sleep, mock_update_config):
